@@ -5,14 +5,13 @@ import crypto from 'crypto'
 import path from 'path'
 import os from 'os'
 import { Command } from 'commander'
-import { initDB } from './db/index.js'
+import { initDB, getDB } from './db/index.js'
 import * as queries from './db/queries.js'
 import { getOctokit } from './github/octokit.js'
-import { postPRComment } from './github/client.js'
+import { postPRComment, fetchScannerComments } from './github/client.js'
 import { unlinkSession, handleScannerCheckCompleted, handleCIFailure } from './agents/index.js'
-import { fetchScannerComments } from './github/client.js'
-import { getDB } from './db/index.js'
 import { uninstallHook } from '../scripts/install-hook.js'
+import type { CheckRunTriggerRow, LinkedSessionRow } from './db/queries.js'
 
 const DB_PATH = process.env.SENTINEL_DB_PATH ?? path.join(os.homedir(), '.sentinel', 'sentinel.db')
 
@@ -40,7 +39,7 @@ function detectTmuxPane(): string | null {
   }
 }
 
-async function autoDetectPR(cwd: string): Promise<{ repo: string; prNumber: number }> {
+async function resolveBranchToPR(cwd: string): Promise<{ repo: string; prNumber: number }> {
   const branch = getCurrentBranch(cwd)
   const [owner, repoName] = parseRemote(cwd)
   const fullName = `${owner}/${repoName}`
@@ -80,7 +79,7 @@ program
       repo = opts.repo
       prNumber = parseInt(opts.pr, 10)
     } else {
-      const detected = await autoDetectPR(cwd)
+      const detected = await resolveBranchToPR(cwd)
       repo = detected.repo
       prNumber = detected.prNumber
     }
@@ -128,7 +127,7 @@ program
   .action(async () => {
     ensureDB()
     const cwd = process.cwd()
-    const { repo, prNumber } = await autoDetectPR(cwd)
+    const { repo, prNumber } = await resolveBranchToPR(cwd)
     await unlinkSession(repo, prNumber, 'manual')
     console.log(`\u2713 Unlinked PR #${prNumber}`)
   })
@@ -141,30 +140,52 @@ program
     ensureDB()
     const sessions = queries.getActiveLinkedSessions()
     const db = getDB()
+
+    // Get recent check_run_triggers
     const recentTriggers = db.prepare(
       'SELECT * FROM check_run_triggers ORDER BY completed_at DESC LIMIT 10'
-    ).all() as queries.CheckRunTriggerRow[]
+    ).all() as CheckRunTriggerRow[]
 
-    if (sessions.length === 0 && recentTriggers.length === 0) {
-      console.log('No active sessions or recent triggers.')
+    // Get watched repos
+    const watchedRepos = db.prepare(
+      'SELECT * FROM watched_repos WHERE active = 1'
+    ).all() as Array<{ full_name: string; last_polled: string | null }>
+
+    if (sessions.length === 0 && recentTriggers.length === 0 && watchedRepos.length === 0) {
+      console.log('No active sessions, recent triggers, or watched repos.')
       return
     }
 
     if (sessions.length > 0) {
       console.log('\nActive Sessions:')
-      console.log('%-25s %-8s %-14s %s', 'Repo', 'PR', 'Agent', 'Linked At')
-      console.log('-'.repeat(70))
+      const header = 'Repo'.padEnd(30) + 'PR'.padEnd(10) + 'Agent'.padEnd(16) + 'Linked At'
+      console.log(header)
+      console.log('-'.repeat(80))
       for (const s of sessions) {
-        console.log('%-25s %-8s %-14s %s', s.repo, `#${s.pr_number}`, s.agent_type, s.linked_at)
+        const line = s.repo.padEnd(30) + `#${s.pr_number}`.padEnd(10) + s.agent_type.padEnd(16) + s.linked_at
+        console.log(line)
       }
     }
 
     if (recentTriggers.length > 0) {
       console.log('\nRecent Check Run Triggers:')
-      console.log('%-25s %-8s %-20s %s', 'Repo', 'PR', 'Check', 'Conclusion')
-      console.log('-'.repeat(70))
+      const header = 'Repo'.padEnd(30) + 'PR'.padEnd(10) + 'Check'.padEnd(22) + 'Conclusion'
+      console.log(header)
+      console.log('-'.repeat(80))
       for (const t of recentTriggers) {
-        console.log('%-25s %-8s %-20s %s', t.repo, `#${t.pr_number}`, t.check_name, t.conclusion)
+        const line = t.repo.padEnd(30) + `#${t.pr_number}`.padEnd(10) + t.check_name.padEnd(22) + t.conclusion
+        console.log(line)
+      }
+    }
+
+    if (watchedRepos.length > 0) {
+      console.log('\nWatched Repos:')
+      const header = 'Repo'.padEnd(40) + 'Last Polled'
+      console.log(header)
+      console.log('-'.repeat(60))
+      for (const r of watchedRepos) {
+        const line = r.full_name.padEnd(40) + (r.last_polled ?? 'never')
+        console.log(line)
       }
     }
   })
@@ -182,7 +203,7 @@ program
     const db = getDB()
     const trigger = db.prepare(
       'SELECT * FROM check_run_triggers WHERE pr_number = ? ORDER BY completed_at DESC LIMIT 1'
-    ).get(prNumber) as queries.CheckRunTriggerRow | undefined
+    ).get(prNumber) as CheckRunTriggerRow | undefined
 
     if (!trigger) {
       console.error(`No check run trigger found for PR #${prNumber}`)
@@ -199,6 +220,7 @@ program
       process.exit(1)
     }
 
+    // Re-fetch scanner comments from GitHub
     const octokit = getOctokit()
     const events = await fetchScannerComments(
       octokit,
@@ -209,10 +231,11 @@ program
       { prTitle: '', prUrl: `https://github.com/${trigger.repo}/pull/${prNumber}` }
     )
 
+    // Re-dispatch via handleScannerCheckCompleted
     await handleScannerCheckCompleted({
       repo: trigger.repo,
       prNumber,
-      checkRunId: trigger.check_run_id + 1, // new synthetic ID to avoid dedup
+      checkRunId: trigger.check_run_id + 1, // synthetic ID to avoid dedup
       checkName: trigger.check_name,
       conclusion: trigger.conclusion,
       startedAt: new Date(trigger.started_at),
@@ -240,13 +263,11 @@ program
     }
 
     if (type === 'bugbot' || type === 'codeql') {
-      // Mock 3 fake scanner comments and call handleScannerCheckCompleted directly
       const scannerLogin = type === 'bugbot' ? 'bugbot[bot]' : 'github-advanced-security[bot]'
       const checkName = type === 'bugbot' ? 'BugBot Scan' : 'CodeQL'
       const now = new Date()
 
-      // We need to mock fetchScannerComments since there are no real comments
-      // Instead, insert fake events and call handleScannerCheckCompleted with success=false
+      // Mock 3 fake scanner comments — bypass HTTP layer entirely
       const fakeEvents = [1, 2, 3].map(i => ({
         id: crypto.createHash('sha256').update(`test:${type}:${prNumber}:${i}:${Date.now()}`).digest('hex'),
         repo: 'test/repo',
@@ -262,12 +283,12 @@ program
         receivedAt: now,
       }))
 
-      // Insert events directly since we're bypassing the HTTP layer
+      // Insert events directly
       for (const event of fakeEvents) {
         queries.insertEvent(event)
       }
 
-      // Insert a check_run_trigger and health entry
+      // Record trigger and health
       queries.insertCheckRunTrigger({
         repo: 'test/repo',
         prNumber,
@@ -286,8 +307,8 @@ program
         lastRunAt: now,
       })
 
-      // Now call handleScannerCheckCompleted — it will fetch (and find nothing from API),
-      // but the events are already in the DB. Use the direct dispatch path instead.
+      // Dispatch directly — call handleScannerCheckCompleted which will
+      // hit the real Octokit (returning empty), but events are already in DB
       const batch = { repo: 'test/repo', prNumber, events: fakeEvents }
       const prMeta = { prTitle: `Test PR #${prNumber}`, prUrl: `https://github.com/test/repo/pull/${prNumber}` }
 
