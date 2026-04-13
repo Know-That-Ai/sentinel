@@ -107,7 +107,7 @@ export function App() {
 
       {events.length === 0 ? (
         <div className="empty-state">
-          <div className="icon">\u2705</div>
+          <div className="icon">{'\u2705'}</div>
           <div>No unreviewed events</div>
         </div>
       ) : (
@@ -123,13 +123,13 @@ export function App() {
 
       <div className="footer">
         <button className="footer-btn" onClick={() => setShowSettings(true)}>
-          \u2699 Settings
+          {'\u2699'} Settings
         </button>
         <button className="footer-btn" onClick={handleRefresh}>
-          \uD83D\uDD04 Refresh
+          {'\uD83D\uDD04'} Refresh
         </button>
         <button className="footer-btn" onClick={handleQuit}>
-          \u2715 Quit
+          {'\u2715'} Quit
         </button>
       </div>
     </div>

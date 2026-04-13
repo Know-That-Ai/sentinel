@@ -26,6 +26,16 @@ interface SettingsProps {
   onClose: () => void
 }
 
+const DEFAULT_CONFIG: SentinelUIConfig = {
+  githubOrg: '',
+  preferredAgent: 'claude-code',
+  openclawUrl: 'http://localhost:4000',
+  openclawApiKey: '',
+  repoPathMappings: {},
+  autoDispatch: { bugbot: false, codeql: false, ci: false },
+  pollingInterval: 60,
+}
+
 function loadConfig(): SentinelUIConfig {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
@@ -35,14 +45,28 @@ function loadConfig(): SentinelUIConfig {
   } catch {
     // Fall through to defaults
   }
-  return {
-    githubOrg: '',
-    preferredAgent: 'claude-code',
-    openclawUrl: 'http://localhost:4000',
-    openclawApiKey: '',
-    repoPathMappings: {},
-    autoDispatch: { bugbot: false, codeql: false, ci: false },
-    pollingInterval: 60,
+  return { ...DEFAULT_CONFIG }
+}
+
+async function fetchDaemonConfig(): Promise<Partial<SentinelUIConfig> | null> {
+  try {
+    const res = await fetch('http://localhost:3847/state/config')
+    if (!res.ok) return null
+    const data = await res.json()
+    return {
+      githubOrg: data.githubOrg || '',
+      preferredAgent: data.preferredAgent || 'claude-code',
+      openclawUrl: data.openclawUrl || 'http://localhost:4000',
+      openclawApiKey: data.openclawApiKey || '',
+      repoPathMappings: data.repoPaths || {},
+      autoDispatch: {
+        bugbot: data.autoDispatchBugbot ?? false,
+        codeql: data.autoDispatchCodeql ?? false,
+        ci: data.autoDispatchCI ?? false,
+      },
+    }
+  } catch {
+    return null
   }
 }
 
@@ -85,6 +109,16 @@ export function Settings({ onClose }: SettingsProps) {
 
   useEffect(() => {
     loadPAT().then(setPat)
+    // Seed from daemon's .env config if no local config file exists
+    if (!fs.existsSync(CONFIG_PATH)) {
+      fetchDaemonConfig().then(daemonConfig => {
+        if (daemonConfig) {
+          const merged = { ...DEFAULT_CONFIG, ...daemonConfig }
+          setConfig(merged)
+          setMappings(Object.entries(merged.repoPathMappings).map(([repo, p]) => ({ repo, path: p })))
+        }
+      })
+    }
   }, [])
 
   const handleSave = useCallback(async () => {

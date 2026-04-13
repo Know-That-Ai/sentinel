@@ -7,6 +7,19 @@ healthRouter.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
+healthRouter.get('/state/config', (_req, res) => {
+  res.json({
+    githubOrg: process.env.GITHUB_ORG ?? '',
+    preferredAgent: process.env.PREFERRED_AGENT ?? 'claude-code',
+    openclawUrl: process.env.OPENCLAW_URL ?? 'http://localhost:4000',
+    openclawApiKey: process.env.OPENCLAW_API_KEY ?? '',
+    repoPaths: JSON.parse(process.env.REPO_PATHS ?? '{}'),
+    autoDispatchBugbot: process.env.AUTO_DISPATCH_BUGBOT === 'true',
+    autoDispatchCodeql: process.env.AUTO_DISPATCH_CODEQL === 'true',
+    autoDispatchCI: process.env.AUTO_DISPATCH_CI === 'true',
+  })
+})
+
 healthRouter.get('/state/unreviewed', (_req, res) => {
   const events = queries.getUnreviewedEvents()
   res.json(events)
