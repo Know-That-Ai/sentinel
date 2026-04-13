@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentinel</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      color: #e0e0e0;
+      background: #1e1e1e;
+      overflow-x: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #root {
+      width: 100%;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      border-bottom: 1px solid #333;
+      background: #252525;
+    }
+
+    /* Repo group */
+    .repo-group {
+      border-bottom: 1px solid #333;
+    }
+
+    .repo-name {
+      padding: 8px 14px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      text-transform: none;
+      letter-spacing: 0.02em;
+    }
+
+    /* Event row */
+    .event-row {
+      display: flex;
+      align-items: center;
+      padding: 6px 14px 6px 24px;
+      gap: 6px;
+      transition: background 0.1s;
+    }
+
+    .event-row:hover {
+      background: #2a2a2a;
+    }
+
+    .event-arrow {
+      color: #555;
+      margin-right: 4px;
+      flex-shrink: 0;
+    }
+
+    .event-label {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .event-label.bugbot {
+      background: #553322;
+      color: #ffaa66;
+    }
+
+    .event-label.codeql {
+      background: #332255;
+      color: #aa88ff;
+    }
+
+    .event-label.ci {
+      background: #553333;
+      color: #ff8888;
+    }
+
+    .event-label.other {
+      background: #333;
+      color: #aaa;
+    }
+
+    .event-info {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: #ccc;
+    }
+
+    .event-pr {
+      color: #888;
+    }
+
+    .linked-indicator {
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    /* Action buttons */
+    .event-actions {
+      display: flex;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .action-btn {
+      background: none;
+      border: 1px solid #444;
+      border-radius: 3px;
+      color: #aaa;
+      font-size: 12px;
+      width: 26px;
+      height: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .action-btn:hover {
+      background: #333;
+      color: #fff;
+      border-color: #666;
+    }
+
+    .action-btn.dispatching {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Footer */
+    .footer {
+      display: flex;
+      justify-content: space-around;
+      padding: 10px 14px;
+      border-top: 1px solid #333;
+      background: #252525;
+    }
+
+    .footer-btn {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .footer-btn:hover {
+      background: #333;
+      color: #fff;
+    }
+
+    /* Settings panel */
+    .settings-panel {
+      padding: 14px;
+      overflow-y: auto;
+      max-height: calc(100vh - 44px);
+    }
+
+    .settings-panel h2 {
+      font-size: 14px;
+      margin-bottom: 12px;
+      color: #e0e0e0;
+    }
+
+    .settings-field {
+      margin-bottom: 12px;
+    }
+
+    .settings-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .settings-field input,
+    .settings-field select {
+      width: 100%;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 4px;
+      color: #e0e0e0;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+
+    .settings-field input:focus,
+    .settings-field select:focus {
+      outline: none;
+      border-color: #666;
+    }
+
+    .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #ccc;
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: normal;
+    }
+
+    .checkbox-group input[type="checkbox"] {
+      width: auto;
+    }
+
+    .repo-mapping {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 4px;
+    }
+
+    .repo-mapping input {
+      flex: 1;
+    }
+
+    .repo-mapping button {
+      background: #333;
+      border: 1px solid #444;
+      color: #aaa;
+      border-radius: 3px;
+      padding: 0 8px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .add-mapping-btn {
+      background: none;
+      border: 1px dashed #444;
+      color: #666;
+      width: 100%;
+      padding: 4px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .settings-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .settings-actions button {
+      flex: 1;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid #444;
+    }
+
+    .save-btn {
+      background: #2563eb;
+      color: white;
+      border-color: #2563eb !important;
+    }
+
+    .save-btn:hover {
+      background: #1d4ed8;
+    }
+
+    .cancel-btn {
+      background: #333;
+      color: #ccc;
+    }
+
+    .cancel-btn:hover {
+      background: #444;
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #666;
+    }
+
+    .empty-state .icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    /* Radio group for polling interval */
+    .radio-group {
+      display: flex;
+      gap: 12px;
+    }
+
+    .radio-group label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: #ccc;
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: normal;
+    }
+
+    .radio-group input[type="radio"] {
+      width: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    // Simple bundler-free approach: load React from node_modules
+    // In Electron with nodeIntegration: true, we can use require()
+    const React = require('react');
+    const ReactDOM = require('react-dom/client');
+
+    // Load components
+    const { App } = require('./app.js');
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>

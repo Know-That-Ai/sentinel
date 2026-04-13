@@ -1,0 +1,137 @@
+import React, { useState, useEffect, useCallback } from 'react'
+import { EventList } from './components/EventList.js'
+import { Settings } from './components/Settings.js'
+
+const { ipcRenderer, shell } = require('electron')
+
+interface EventRow {
+  id: string
+  repo: string
+  pr_number: number
+  pr_title: string
+  pr_url: string
+  pr_author: string
+  event_type: string
+  source: string
+  actor: string
+  body: string | null
+  github_url: string
+  received_at: string
+  reviewed: number
+  dispatched_to: string | null
+  dispatch_status: string | null
+}
+
+interface LinkedSession {
+  id: string
+  repo: string
+  pr_number: number
+  agent_type: string
+  unlinked_at: string | null
+}
+
+export function App() {
+  const [events, setEvents] = useState<EventRow[]>([])
+  const [sessions, setSessions] = useState<LinkedSession[]>([])
+  const [showSettings, setShowSettings] = useState(false)
+  const [dispatchingIds, setDispatchingIds] = useState<Set<string>>(new Set())
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [evts, sess] = await Promise.all([
+        ipcRenderer.invoke('get-unreviewed'),
+        ipcRenderer.invoke('get-linked-sessions'),
+      ])
+      setEvents(evts)
+      setSessions(sess)
+    } catch (err) {
+      console.error('Failed to fetch data:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+    const interval = setInterval(fetchData, 10_000)
+    return () => clearInterval(interval)
+  }, [fetchData])
+
+  const handleOpenExternal = useCallback((url: string) => {
+    shell.openExternal(url)
+  }, [])
+
+  const handleMarkReviewed = useCallback(async (eventId: string) => {
+    // Optimistic removal
+    setEvents(prev => prev.filter(e => e.id !== eventId))
+    await ipcRenderer.invoke('mark-reviewed', eventId)
+  }, [])
+
+  const handleDispatch = useCallback(async (eventId: string) => {
+    setDispatchingIds(prev => new Set(prev).add(eventId))
+    try {
+      await ipcRenderer.invoke('dispatch-event', eventId)
+    } finally {
+      setDispatchingIds(prev => {
+        const next = new Set(prev)
+        next.delete(eventId)
+        return next
+      })
+      fetchData()
+    }
+  }, [fetchData])
+
+  const handleRefresh = useCallback(() => {
+    fetchData()
+  }, [fetchData])
+
+  const handleQuit = useCallback(() => {
+    ipcRenderer.invoke('quit-app')
+  }, [])
+
+  if (showSettings) {
+    return <Settings onClose={() => setShowSettings(false)} />
+  }
+
+  const linkedPRs = new Set(
+    sessions
+      .filter(s => !s.unlinked_at)
+      .map(s => `${s.repo}:${s.pr_number}`)
+  )
+
+  return (
+    <div>
+      <div className="header">
+        {events.length > 0
+          ? `\uD83D\uDC41 ${events.length} unreviewed`
+          : `\uD83D\uDC41 all clear`}
+      </div>
+
+      {events.length === 0 ? (
+        <div className="empty-state">
+          <div className="icon">\u2705</div>
+          <div>No unreviewed events</div>
+        </div>
+      ) : (
+        <EventList
+          events={events}
+          linkedPRs={linkedPRs}
+          dispatchingIds={dispatchingIds}
+          onOpen={handleOpenExternal}
+          onReview={handleMarkReviewed}
+          onDispatch={handleDispatch}
+        />
+      )}
+
+      <div className="footer">
+        <button className="footer-btn" onClick={() => setShowSettings(true)}>
+          \u2699 Settings
+        </button>
+        <button className="footer-btn" onClick={handleRefresh}>
+          \uD83D\uDD04 Refresh
+        </button>
+        <button className="footer-btn" onClick={handleQuit}>
+          \u2715 Quit
+        </button>
+      </div>
+    </div>
+  )
+}
