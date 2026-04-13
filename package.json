@@ -3,13 +3,18 @@
   "version": "0.1.0",
   "description": "Mac menu bar PR monitor & agent dispatcher",
   "main": "dist/main.js",
+  "bin": {
+    "sentinel": "./dist/cli.js"
+  },
   "type": "module",
   "scripts": {
+    "start": "concurrently --names 'daemon,ui' --prefix-colors 'blue,green' \"node --env-file=.env dist/main.js\" \"electron --env-file=.env dist/menubar/index.js\"",
+    "start:daemon": "node --env-file=.env dist/main.js",
+    "start:ui": "electron --env-file=.env dist/menubar/index.js",
+    "dev": "concurrently --names 'daemon,ui' --prefix-colors 'blue,green' \"tsx --env-file=.env src/main.ts\" \"electron --env-file=.env src/menubar/index.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "start": "node --env-file=.env dist/main.js",
-    "dev": "tsx --env-file=.env src/main.ts",
     "build": "tsup",
     "install-hook": "tsx scripts/install-hook.ts",
     "smee": "tsx --env-file=.env scripts/smee-dev.ts",
@@ -18,17 +23,18 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "bin": {
-    "sentinel": "./dist/cli.js"
-  },
   "private": true,
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
     "@types/node": "^25.6.0",
     "@types/node-notifier": "^8.0.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@types/supertest": "^7.2.0",
     "@vitest/coverage-v8": "^4.1.4",
+    "concurrently": "^9.2.1",
+    "electron-builder": "^26.8.1",
     "supertest": "^7.2.2",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
@@ -39,8 +45,13 @@
     "@octokit/rest": "^22.0.1",
     "better-sqlite3": "^12.9.0",
     "dotenv": "^17.4.2",
+    "electron": "^41.2.0",
     "express": "^5.2.1",
+    "keytar": "^7.9.0",
+    "menubar": "^9.5.2",
     "node-notifier": "^10.0.1",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "smee-client": "^2.0.0"
   }
 }
