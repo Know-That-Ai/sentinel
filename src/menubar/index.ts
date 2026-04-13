@@ -1,7 +1,9 @@
+import 'dotenv/config'
 import { menubar } from 'menubar'
 import { app, ipcMain, Tray } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { initDB } from '../db/index.js'
 import { setupIPC } from './ipc.js'
 import { handleGetUnreviewed, handleGetLinkedSessions } from './ipc.js'
 
@@ -36,6 +38,9 @@ async function pollTrayState(tray: Tray): Promise<void> {
 }
 
 export function startMenubar(): void {
+  const DB_PATH = process.env.SENTINEL_DB_PATH ?? 'sentinel.db'
+  initDB(DB_PATH)
+
   app.whenReady().then(() => {
     const mb = menubar({
       index: `file://${path.join(__dirname, 'ui', 'index.html')}`,
