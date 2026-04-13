@@ -6,5 +6,5 @@ export default defineConfig({
   target: 'node20',
   sourcemap: true,
   clean: true,
-  dts: true,
+  dts: false,
 })
