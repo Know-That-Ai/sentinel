@@ -5,6 +5,10 @@
   "main": "dist/main.js",
   "type": "module",
   "scripts": {
+    "start": "concurrently --names 'daemon,ui' --prefix-colors 'blue,green' \"node --env-file=.env dist/main.js\" \"electron --env-file=.env dist/menubar/index.js\"",
+    "start:daemon": "node --env-file=.env dist/main.js",
+    "start:ui": "electron --env-file=.env dist/menubar/index.js",
+    "dev": "concurrently --names 'daemon,ui' --prefix-colors 'blue,green' \"tsx --env-file=.env src/main.ts\" \"electron --env-file=.env src/menubar/index.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -24,6 +28,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/supertest": "^7.2.0",
     "@vitest/coverage-v8": "^4.1.4",
+    "concurrently": "^9.2.1",
     "electron-builder": "^26.8.1",
     "supertest": "^7.2.2",
     "tsup": "^8.5.1",

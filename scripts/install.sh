@@ -45,8 +45,8 @@ cat > "$PLIST_PATH" << EOF
   <string>com.sentinel.daemon</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/node</string>
-    <string>${SENTINEL_DIR}/dist/main.js</string>
+    <string>$(which pnpm)</string>
+    <string>start</string>
   </array>
   <key>WorkingDirectory</key>
   <string>${SENTINEL_DIR}</string>
