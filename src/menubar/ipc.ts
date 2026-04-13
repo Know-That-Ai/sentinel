@@ -25,12 +25,30 @@ export async function handleGetLinkedSessions(): Promise<LinkedSessionRow[]> {
 
 /**
  * Dispatches an event to the appropriate agent.
- * TODO: Full implementation requires Phase 4 dispatch functions.
- * Currently a no-op stub.
  */
 export async function handleDispatchEvent(eventId: string): Promise<void> {
-  // TODO: Implement once Phase 4 dispatch functions are available
-  // 1. Look up the event by ID
-  // 2. Determine the target agent
-  // 3. Call dispatchEvent from agents/index.ts
+  const event = queries.getEventById(eventId)
+  if (!event) return
+
+  const batch = {
+    repo: event.repo,
+    prNumber: event.pr_number,
+    events: [{
+      id: event.id,
+      repo: event.repo,
+      prNumber: event.pr_number,
+      prTitle: event.pr_title,
+      prUrl: event.pr_url,
+      prAuthor: event.pr_author,
+      eventType: event.event_type as SentinelEvent['eventType'],
+      source: event.source as SentinelEvent['source'],
+      actor: event.actor,
+      body: event.body ?? undefined,
+      githubUrl: event.github_url,
+      receivedAt: new Date(event.received_at),
+    }],
+  }
+  const prMeta = { prTitle: event.pr_title, prUrl: event.pr_url }
+  const { dispatchBatch } = await import('../agents/index.js')
+  await dispatchBatch(batch, prMeta)
 }
