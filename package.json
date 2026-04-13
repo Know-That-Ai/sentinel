@@ -8,7 +8,7 @@
   },
   "type": "module",
   "scripts": {
-    "start": "concurrently --names 'daemon,ui' --prefix-colors 'blue,green' \"node --env-file=.env dist/main.js\" \"electron --env-file=.env dist/menubar/index.js\"",
+    "start": "pnpm build && pnpm link --global && concurrently --names 'daemon,ui' --prefix-colors 'blue,green' \"node --env-file=.env dist/main.js\" \"electron --env-file=.env dist/menubar/index.js\"",
     "start:daemon": "node --env-file=.env dist/main.js",
     "start:ui": "electron --env-file=.env dist/menubar/index.js",
     "dev": "concurrently --names 'daemon,ui' --prefix-colors 'blue,green' \"tsx --env-file=.env src/main.ts\" \"electron --env-file=.env src/menubar/index.ts\"",
