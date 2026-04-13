@@ -2,6 +2,7 @@ import * as queries from '../db/queries.js'
 import { sendBatchNotification } from '../notifications/index.js'
 import { getAutoDispatchRules } from '../config.js'
 import { fetchScannerComments, getPRMeta, postPRComment, deletePRComment } from '../github/client.js'
+import { getOctokit } from '../github/octokit.js'
 import { dispatchToClaudeCode } from './claude-code.js'
 import { injectIntoSession } from './inject.js'
 import { buildBatchPrompt } from './prompts.js'
@@ -50,7 +51,7 @@ export async function handleScannerCheckCompleted(params: ScannerCheckCompletedP
 
   // Fetch all comments this scanner left during the run
   const events = await fetchScannerComments(
-    null as any, // octokit — mocked in tests
+    getOctokit(),
     repo, prNumber, scannerLogin, startedAt,
     { prTitle: '', prUrl: `https://github.com/${repo}/pull/${prNumber}` }
   )
@@ -127,7 +128,7 @@ export async function unlinkSession(
 
   if (session.sentinel_comment_id) {
     const [owner, repoName] = repo.split('/')
-    await deletePRComment(owner, repoName, session.sentinel_comment_id)
+    await deletePRComment(owner, repoName, session.sentinel_comment_id, getOctokit())
   }
 
   queries.unlinkSession(repo, prNumber, reason)
@@ -180,7 +181,8 @@ export async function handlePRGreen(repo: string, prNumber: number, prUrl: strin
   const [owner, repoName] = repo.split('/')
   await postPRComment(
     owner, repoName, prNumber,
-    `**Sentinel** \u2705 All checks passing \u2014 no BugBot, CodeQL, or CI issues remaining.\nPR is ready for review.`
+    `**Sentinel** \u2705 All checks passing \u2014 no BugBot, CodeQL, or CI issues remaining.\nPR is ready for review. (cc @${process.env.GITHUB_USERNAME ?? ''})`,
+    getOctokit()
   )
 
   // Unlink any active session

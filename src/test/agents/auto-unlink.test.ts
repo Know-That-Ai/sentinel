@@ -43,7 +43,7 @@ describe('unlinkSession', () => {
     const { deletePRComment } = await import('../../github/client.js')
     const { unlinkSession } = await import('../../agents/index.js')
     await unlinkSession('org/repo', 43, 'manual')
-    expect(deletePRComment).toHaveBeenCalledWith('org', 'repo', 555)
+    expect(deletePRComment).toHaveBeenCalledWith('org', 'repo', 555, expect.anything())
   })
 
   it('does not throw if sentinel_comment_id is null', async () => {
