@@ -203,21 +203,21 @@ async function cmdTestWebhook(): Promise<void> {
   const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000)
 
   if (typeFlag === 'success') {
-    // Simulate all checks passing
+    // Simulate all checks passing — mark everything green
     queries.upsertPRHealth({ repo, prNumber, checkName: 'BugBot', conclusion: 'success', lastRunAt: now })
     queries.upsertPRHealth({ repo, prNumber, checkName: 'CI', conclusion: 'success', lastRunAt: now })
 
-    await handleScannerCheckCompleted({
-      repo, prNumber,
-      checkRunId: Math.floor(Math.random() * 100000),
-      checkName: 'BugBot',
-      conclusion: 'success',
-      startedAt: fiveMinAgo,
-      completedAt: now,
-      scannerLogin: 'cursor-bugbot[bot]',
-    })
+    // Mark any existing scanner events as reviewed so isPRGreen returns true
+    const openEvents = queries.getUnreviewedScannerEvents(repo, prNumber)
+    for (const e of openEvents) queries.markEventReviewed(e.id)
 
-    console.log(`Simulated: all checks passing for ${repo}#${prNumber} — green state should fire`)
+    const { isPRGreen, handlePRGreen } = await import('./agents/index.js')
+    if (await isPRGreen(repo, prNumber)) {
+      await handlePRGreen(repo, prNumber, `https://github.com/${repo}/pull/${prNumber}`)
+      console.log(`Simulated: all checks passing for ${repo}#${prNumber} — green state fired`)
+    } else {
+      console.log(`Simulated: checks marked as passing for ${repo}#${prNumber} but PR not fully green yet`)
+    }
     return
   }
 
@@ -271,18 +271,37 @@ async function cmdTestWebhook(): Promise<void> {
 
     for (const e of fakeEvents) queries.insertEvent(e)
 
-    // Trigger the scanner check completed flow with action_required so it dispatches
-    await handleScannerCheckCompleted({
-      repo, prNumber,
-      checkRunId: Math.floor(Math.random() * 100000),
+    // Record a check_run_trigger and pr_health entry
+    const checkRunId = Math.floor(Math.random() * 100000)
+    queries.insertCheckRunTrigger({
+      repo, prNumber, checkRunId,
       checkName: typeFlag === 'bugbot' ? 'BugBot Scan' : 'CodeQL',
       conclusion: 'action_required',
-      startedAt: fiveMinAgo,
-      completedAt: now,
-      scannerLogin,
+      startedAt: fiveMinAgo, completedAt: now,
+    })
+    queries.upsertPRHealth({
+      repo, prNumber,
+      checkName: typeFlag === 'bugbot' ? 'BugBot Scan' : 'CodeQL',
+      conclusion: 'action_required', lastRunAt: now,
     })
 
-    console.log(`Simulated: 3 ${typeFlag} issues on ${repo}#${prNumber}`)
+    // Send notification and inject directly — skip GitHub API fetch
+    const { sendBatchNotification } = await import('./notifications/index.js')
+    const { injectIntoSession } = await import('./agents/inject.js')
+    const { buildBatchPrompt } = await import('./agents/prompts.js')
+
+    const batch = { repo, prNumber, events: fakeEvents }
+    const prMeta = { prTitle: `Test PR #${prNumber}`, prUrl: `https://github.com/${repo}/pull/${prNumber}` }
+
+    const linkedSession = queries.getLinkedSession(repo, prNumber)
+    if (linkedSession && !linkedSession.unlinked_at) {
+      const prompt = buildBatchPrompt(batch, prMeta.prTitle, prMeta.prUrl)
+      await injectIntoSession(linkedSession, batch, prMeta, prompt)
+      console.log(`Simulated: 3 ${typeFlag} issues on ${repo}#${prNumber} — injected into linked session`)
+    } else {
+      await sendBatchNotification(batch, prMeta)
+      console.log(`Simulated: 3 ${typeFlag} issues on ${repo}#${prNumber} — notification sent`)
+    }
   } else if (typeFlag === 'ci') {
     const { handleCIFailure } = await import('./agents/index.js')
     await handleCIFailure({

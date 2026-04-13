@@ -121,6 +121,19 @@ export function App() {
         />
       )}
 
+      {sessions.filter(s => !s.unlinked_at).length > 0 && (
+        <div className="linked-sessions">
+          <div className="linked-header">{'\uD83D\uDD17'} Linked Sessions</div>
+          {sessions.filter(s => !s.unlinked_at).map(s => (
+            <div key={s.id} className="linked-row">
+              <span className="linked-agent">{s.agent_type === 'claude-code' ? '\u26A1' : '\uD83E\uDD16'}</span>
+              <span className="linked-detail">{s.repo}#{s.pr_number}</span>
+              <span className="linked-pid">pid {s.terminal_pid ?? '-'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="footer">
         <button className="footer-btn" onClick={() => setShowSettings(true)}>
           {'\u2699'} Settings
