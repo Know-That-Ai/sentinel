@@ -14,6 +14,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "bin": {
+    "sentinel": "./dist/cli.js"
+  },
   "private": true,
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

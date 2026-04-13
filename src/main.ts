@@ -35,6 +35,11 @@ async function main(): Promise<void> {
 
   await watchLinkedSessions()
   console.log('Sentinel is running. PID watcher active.')
+
+  const { startPoller } = await import('./github/poller.js')
+  const { getOctokit } = await import('./github/octokit.js')
+  startPoller(getOctokit())
+  console.log('Poller started (60s interval)')
 }
 
 main().catch((err) => {
