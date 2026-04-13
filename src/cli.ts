@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+import { config } from 'dotenv'
+import { fileURLToPath } from 'url'
+import path from 'path'
+
+// Load .env from sentinel's install directory, not cwd
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+config({ path: path.resolve(__dirname, '..', '.env') })
+
 import crypto from 'crypto'
 import { initDB } from './db/index.js'
 import * as queries from './db/queries.js'
