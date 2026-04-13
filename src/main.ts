@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { initDB } from './db/index.js'
 import { createApp } from './server/index.js'
 import * as queries from './db/queries.js'
