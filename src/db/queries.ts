@@ -153,6 +153,31 @@ export function getCheckRunTrigger(repo: string, checkRunId: number): CheckRunTr
     .get(repo, checkRunId) as CheckRunTriggerRow | undefined ?? null
 }
 
+// --- Watched Repos ---
+
+export function insertWatchedRepo(fullName: string): void {
+  const db = getDB()
+  db.prepare('INSERT OR IGNORE INTO watched_repos (full_name) VALUES (?)').run(fullName)
+}
+
+export function getWatchedRepo(fullName: string): WatchedRepoRow | null {
+  const db = getDB()
+  return db.prepare('SELECT * FROM watched_repos WHERE full_name = ?')
+    .get(fullName) as WatchedRepoRow | undefined ?? null
+}
+
+export function getActiveWatchedRepos(): WatchedRepoRow[] {
+  const db = getDB()
+  return db.prepare('SELECT * FROM watched_repos WHERE active = 1')
+    .all() as WatchedRepoRow[]
+}
+
+export function updateLastPolled(fullName: string): void {
+  const db = getDB()
+  db.prepare('UPDATE watched_repos SET last_polled = ? WHERE full_name = ?')
+    .run(new Date().toISOString(), fullName)
+}
+
 // --- Dispatch Log ---
 
 export interface InsertDispatchLogParams {
@@ -233,4 +258,11 @@ export interface CheckRunTriggerRow {
   completed_at: string
   dispatched: number
   dispatched_at: string | null
+}
+
+export interface WatchedRepoRow {
+  full_name: string
+  active: number
+  last_polled: string | null
+  webhook_id: number | null
 }
