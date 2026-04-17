@@ -61,8 +61,7 @@ async function cmdLink(): Promise<void> {
   }
 
   const sessionId = crypto.randomUUID()
-  const terminalPid = process.ppid ?? null
-  const tty = resolveTty()
+  const { pid: terminalPid, tty } = resolveTerminalContext()
 
   queries.insertLinkedSession({
     id: sessionId,
@@ -76,27 +75,27 @@ async function cmdLink(): Promise<void> {
     linkedAt: new Date().toISOString(),
   })
 
-  console.log(`Linked: ${repo}#${prNumber} (session ${sessionId}, pid ${terminalPid}, tty ${tty ?? '-'})`)
+  console.log(`Linked: ${repo}#${prNumber} (session ${sessionId}, pid ${terminalPid ?? '-'}, tty ${tty ?? '-'})`)
 }
 
-function resolveTty(): string | null {
-  // Walk up the process tree. When `sentinel link` runs inside a piped child
-  // of Claude Code (`!` commands, bash hooks), the immediate process has no
-  // controlling tty (`??`). A live ancestor — Claude itself, zsh, or iTerm2 —
-  // does, and it's the tty of our iTerm tab.
-  return ttyOfAncestor(process.pid)
-}
-
-function ttyOfAncestor(startPid: number): string | null {
-  let pid = startPid
+function resolveTerminalContext(): { pid: number | null; tty: string | null } {
+  // Start from our parent (we ourselves exit right after), then walk up the
+  // process tree until we find a live ancestor with a real controlling tty.
+  // That ancestor is long-lived (zsh, Claude Code, iTerm2) and its tty is
+  // the iTerm tab's tty. Storing both pins aliveness *and* routing to the
+  // same process, so the daemon's pid-watcher doesn't auto-unlink when a
+  // short-lived bash (spawned by Claude's `!`) exits.
+  const start = process.ppid ?? null
+  if (!start) return { pid: null, tty: null }
+  let pid: number = start
   for (let hops = 0; hops < 20; hops++) {
     const tty = ttyForPid(pid)
-    if (tty) return tty
+    if (tty) return { pid, tty }
     const ppid = parentPid(pid)
-    if (!ppid || ppid === pid || ppid <= 1) return null
+    if (!ppid || ppid === pid || ppid <= 1) return { pid: null, tty: null }
     pid = ppid
   }
-  return null
+  return { pid: null, tty: null }
 }
 
 function ttyForPid(pid: number): string | null {
