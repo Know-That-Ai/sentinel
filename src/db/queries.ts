@@ -86,6 +86,7 @@ export interface InsertLinkedSessionParams {
   prNumber: number
   agentType: string
   terminalPid: number | null
+  tty: string | null
   tmuxPane: string | null
   repoPath: string
   linkedAt: string
@@ -94,9 +95,12 @@ export interface InsertLinkedSessionParams {
 export function insertLinkedSession(params: InsertLinkedSessionParams): void {
   const db = getDB()
   db.prepare(`
-    INSERT OR REPLACE INTO linked_sessions (id, repo, pr_number, agent_type, terminal_pid, tmux_pane, repo_path, linked_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(params.id, params.repo, params.prNumber, params.agentType, params.terminalPid, params.tmuxPane, params.repoPath, params.linkedAt)
+    INSERT OR REPLACE INTO linked_sessions (id, repo, pr_number, agent_type, terminal_pid, tty, tmux_pane, repo_path, linked_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    params.id, params.repo, params.prNumber, params.agentType,
+    params.terminalPid, params.tty, params.tmuxPane, params.repoPath, params.linkedAt
+  )
 }
 
 export function getLinkedSession(repo: string, prNumber: number): LinkedSessionRow | null {
@@ -239,6 +243,7 @@ export interface LinkedSessionRow {
   pr_number: number
   agent_type: string
   terminal_pid: number | null
+  tty: string | null
   tmux_pane: string | null
   repo_path: string
   linked_at: string

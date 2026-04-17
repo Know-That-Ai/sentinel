@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS linked_sessions (
   pr_number INTEGER NOT NULL,
   agent_type TEXT NOT NULL,
   terminal_pid INTEGER,
+  tty TEXT,
   tmux_pane TEXT,
   repo_path TEXT NOT NULL,
   linked_at TEXT NOT NULL,

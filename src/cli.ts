@@ -9,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 config({ path: path.resolve(__dirname, '..', '.env') })
 
 import crypto from 'crypto'
+import { execSync } from 'child_process'
 import { initDB } from './db/index.js'
 import * as queries from './db/queries.js'
 import { getOctokit } from './github/octokit.js'
@@ -59,6 +60,7 @@ async function cmdLink(): Promise<void> {
 
   const sessionId = crypto.randomUUID()
   const terminalPid = process.ppid ?? null
+  const tty = resolveTty()
 
   queries.insertLinkedSession({
     id: sessionId,
@@ -66,12 +68,23 @@ async function cmdLink(): Promise<void> {
     prNumber,
     agentType: 'claude-code',
     terminalPid,
+    tty,
     tmuxPane: process.env.SENTINEL_DEFAULT_TMUX_PANE ?? null,
     repoPath: cwd,
     linkedAt: new Date().toISOString(),
   })
 
-  console.log(`Linked: ${repo}#${prNumber} (session ${sessionId}, pid ${terminalPid})`)
+  console.log(`Linked: ${repo}#${prNumber} (session ${sessionId}, pid ${terminalPid}, tty ${tty ?? '-'})`)
+}
+
+function resolveTty(): string | null {
+  try {
+    const raw = execSync(`ps -o tty= -p ${process.pid}`, { encoding: 'utf-8' }).trim()
+    if (!raw || raw === '?' || raw === '??') return null
+    return raw.startsWith('/dev/') ? raw : `/dev/${raw}`
+  } catch {
+    return null
+  }
 }
 
 async function cmdUnlink(): Promise<void> {
