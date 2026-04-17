@@ -1,10 +1,13 @@
 import 'dotenv/config'
+import os from 'os'
+import path from 'path'
 import { initDB } from './db/index.js'
 import { createApp } from './server/index.js'
 import * as queries from './db/queries.js'
 
 const PORT = parseInt(process.env.PORT ?? '3847', 10)
-const DB_PATH = process.env.SENTINEL_DB_PATH ?? 'sentinel.db'
+const DB_PATH =
+  process.env.SENTINEL_DB_PATH ?? path.join(os.homedir(), '.sentinel', 'sentinel.db')
 
 async function watchLinkedSessions(): Promise<void> {
   setInterval(async () => {

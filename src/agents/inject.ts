@@ -60,12 +60,36 @@ async function deliverViaTmux(pane: string, prompt: string): Promise<void> {
 function resolveTty(session: LinkedSessionRow): string | null {
   if (session.tty) return session.tty
   if (!session.terminal_pid) return null
+  return ttyOfAncestor(session.terminal_pid)
+}
+
+function ttyOfAncestor(startPid: number): string | null {
+  let pid = startPid
+  for (let hops = 0; hops < 20; hops++) {
+    const tty = ttyForPid(pid)
+    if (tty) return tty
+    const ppid = parentPid(pid)
+    if (!ppid || ppid === pid || ppid <= 1) return null
+    pid = ppid
+  }
+  return null
+}
+
+function ttyForPid(pid: number): string | null {
   try {
-    const raw = execSync(`ps -o tty= -p ${session.terminal_pid}`, {
-      encoding: 'utf-8',
-    }).trim()
+    const raw = execSync(`ps -o tty= -p ${pid}`, { encoding: 'utf-8' }).trim()
     if (!raw || raw === '?' || raw === '??') return null
     return raw.startsWith('/dev/') ? raw : `/dev/${raw}`
+  } catch {
+    return null
+  }
+}
+
+function parentPid(pid: number): number | null {
+  try {
+    const raw = execSync(`ps -o ppid= -p ${pid}`, { encoding: 'utf-8' }).trim()
+    const n = parseInt(raw, 10)
+    return Number.isFinite(n) && n > 0 ? n : null
   } catch {
     return null
   }

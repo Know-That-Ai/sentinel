@@ -9,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 config({ path: path.resolve(__dirname, '..', '.env') })
 
 import crypto from 'crypto'
+import os from 'os'
 import { execSync } from 'child_process'
 import { initDB } from './db/index.js'
 import * as queries from './db/queries.js'
@@ -17,7 +18,8 @@ import { resolveBranchToPR, getCurrentBranch, parseRemote } from './github/repos
 import { handleScannerCheckCompleted, unlinkSession } from './agents/index.js'
 import { uninstallHook } from '../scripts/install-hook.js'
 
-const DB_PATH = process.env.SENTINEL_DB_PATH ?? 'sentinel.db'
+const DB_PATH =
+  process.env.SENTINEL_DB_PATH ?? path.join(os.homedir(), '.sentinel', 'sentinel.db')
 
 const command = process.argv[2]
 const args = process.argv.slice(3)
@@ -78,10 +80,40 @@ async function cmdLink(): Promise<void> {
 }
 
 function resolveTty(): string | null {
+  // Walk up the process tree. When `sentinel link` runs inside a piped child
+  // of Claude Code (`!` commands, bash hooks), the immediate process has no
+  // controlling tty (`??`). A live ancestor — Claude itself, zsh, or iTerm2 —
+  // does, and it's the tty of our iTerm tab.
+  return ttyOfAncestor(process.pid)
+}
+
+function ttyOfAncestor(startPid: number): string | null {
+  let pid = startPid
+  for (let hops = 0; hops < 20; hops++) {
+    const tty = ttyForPid(pid)
+    if (tty) return tty
+    const ppid = parentPid(pid)
+    if (!ppid || ppid === pid || ppid <= 1) return null
+    pid = ppid
+  }
+  return null
+}
+
+function ttyForPid(pid: number): string | null {
   try {
-    const raw = execSync(`ps -o tty= -p ${process.pid}`, { encoding: 'utf-8' }).trim()
+    const raw = execSync(`ps -o tty= -p ${pid}`, { encoding: 'utf-8' }).trim()
     if (!raw || raw === '?' || raw === '??') return null
     return raw.startsWith('/dev/') ? raw : `/dev/${raw}`
+  } catch {
+    return null
+  }
+}
+
+function parentPid(pid: number): number | null {
+  try {
+    const raw = execSync(`ps -o ppid= -p ${pid}`, { encoding: 'utf-8' }).trim()
+    const n = parseInt(raw, 10)
+    return Number.isFinite(n) && n > 0 ? n : null
   } catch {
     return null
   }
