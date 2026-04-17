@@ -10,10 +10,16 @@ healthRouter.get('/health', (_req, res) => {
 healthRouter.get('/state/config', (_req, res) => {
   res.json({
     githubOrg: process.env.GITHUB_ORG ?? '',
+    githubUsername: process.env.GITHUB_USERNAME ?? '',
+    userLabel: process.env.SENTINEL_USER_LABEL ?? '',
     preferredAgent: process.env.PREFERRED_AGENT ?? 'claude-code',
     openclawUrl: process.env.OPENCLAW_URL ?? 'http://localhost:4000',
     openclawApiKey: process.env.OPENCLAW_API_KEY ?? '',
     repoPaths: JSON.parse(process.env.REPO_PATHS ?? '{}'),
+    scannerBotLogins: (process.env.SCANNER_BOT_LOGINS ?? '')
+      .split(',').map(s => s.trim()).filter(Boolean),
+    smeeUrl: process.env.SMEE_URL ?? '',
+    port: parseInt(process.env.PORT ?? '3847', 10),
     autoDispatchBugbot: process.env.AUTO_DISPATCH_BUGBOT === 'true',
     autoDispatchCodeql: process.env.AUTO_DISPATCH_CODEQL === 'true',
     autoDispatchCI: process.env.AUTO_DISPATCH_CI === 'true',

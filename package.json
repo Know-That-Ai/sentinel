@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "build": "tsup && tsup src/menubar/ui/app.tsx --format cjs --out-dir dist/menubar/ui --no-splitting --external electron --no-dts && cp src/menubar/ui/index.html dist/menubar/ui/index.html",
+    "build:tui": "cd tui && cargo build --release",
     "install-hook": "tsx scripts/install-hook.ts",
     "smee": "tsx --env-file=.env scripts/smee-dev.ts",
     "setup-webhooks": "tsx --env-file=.env scripts/setup-webhook.ts"

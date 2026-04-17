@@ -328,6 +328,62 @@ async function cmdUninstall(): Promise<void> {
   console.log('Sentinel hook removed from Claude Code settings.')
 }
 
+async function cmdTui(): Promise<void> {
+  const { spawn } = await import('child_process')
+  const sentinelDir = path.resolve(__dirname, '..')
+  const binary = path.join(sentinelDir, 'tui', 'target', 'release', 'sentinel-tui')
+  const fs = await import('fs')
+  if (!fs.existsSync(binary)) {
+    console.error(`sentinel-tui binary not found at ${binary}`)
+    console.error('Build it with:  cd tui && cargo build --release')
+    process.exit(1)
+  }
+  const child = spawn(binary, [], { stdio: 'inherit' })
+  await new Promise<void>((resolve) => {
+    child.on('exit', (code) => {
+      if (code && code !== 0) process.exit(code)
+      resolve()
+    })
+  })
+}
+
+function launchdLabel(): string {
+  return 'com.sentinel.daemon'
+}
+
+async function cmdStart(): Promise<void> {
+  const { execSync } = await import('child_process')
+  try {
+    execSync(`launchctl kickstart gui/$(id -u)/${launchdLabel()}`, { stdio: 'inherit' })
+    console.log('Sentinel daemon started.')
+  } catch {
+    const plist = `${process.env.HOME}/Library/LaunchAgents/${launchdLabel()}.plist`
+    execSync(`launchctl load ${plist}`, { stdio: 'inherit' })
+    console.log('Sentinel daemon loaded.')
+  }
+}
+
+async function cmdStop(): Promise<void> {
+  const { execSync } = await import('child_process')
+  const plist = `${process.env.HOME}/Library/LaunchAgents/${launchdLabel()}.plist`
+  execSync(`launchctl unload ${plist}`, { stdio: 'inherit' })
+  console.log('Sentinel daemon stopped.')
+}
+
+async function cmdRestart(): Promise<void> {
+  const { execSync } = await import('child_process')
+  execSync(`launchctl kickstart -k gui/$(id -u)/${launchdLabel()}`, { stdio: 'inherit' })
+  console.log('Sentinel daemon restarted.')
+}
+
+async function cmdLogs(): Promise<void> {
+  const { spawn } = await import('child_process')
+  const logPath = `${process.env.HOME}/.sentinel/sentinel.log`
+  const errPath = `${process.env.HOME}/.sentinel/sentinel.error.log`
+  const child = spawn('tail', ['-f', logPath, errPath], { stdio: 'inherit' })
+  await new Promise<void>((resolve) => child.on('exit', () => resolve()))
+}
+
 async function main(): Promise<void> {
   switch (command) {
     case 'link':
@@ -348,14 +404,36 @@ async function main(): Promise<void> {
     case 'uninstall':
       await cmdUninstall()
       break
+    case 'tui':
+      await cmdTui()
+      break
+    case 'start':
+      await cmdStart()
+      break
+    case 'stop':
+      await cmdStop()
+      break
+    case 'restart':
+      await cmdRestart()
+      break
+    case 'logs':
+      await cmdLogs()
+      break
     default:
-      console.log('Usage: sentinel <link|unlink|status|flush|test-webhook|uninstall>')
+      console.log('Usage: sentinel <command>')
       console.log('')
-      console.log('Commands:')
+      console.log('Linking:')
       console.log('  link                          Link current branch to its PR')
       console.log('  link --pr <n> --repo <o/r>    Explicit link')
       console.log('  unlink                        Detach current session')
       console.log('  status                        Show active links and PR health')
+      console.log('')
+      console.log('Service:')
+      console.log('  tui                           Open the interactive dashboard')
+      console.log('  start | stop | restart        Control the launchd daemon')
+      console.log('  logs                          Tail ~/.sentinel/*.log')
+      console.log('')
+      console.log('Ops:')
       console.log('  flush --pr <n>                Re-fetch and re-dispatch for a PR')
       console.log('  test-webhook --pr <n> --type <bugbot|codeql|ci|success>')
       console.log('  uninstall                     Remove Claude Code hook')
