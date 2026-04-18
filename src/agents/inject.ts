@@ -80,9 +80,13 @@ async function tryDeliverViaTmux(pane: string, prompt: string): Promise<boolean>
     return false
   }
   try {
+    const submit = process.env.SENTINEL_AUTO_SUBMIT !== 'false'
     const escaped = prompt.replace(/'/g, `'"'"'`)
-    execSync(`tmux send-keys -t '${pane}' '' Enter`, { stdio: 'ignore' })
-    execSync(`tmux send-keys -t '${pane}' '${escaped}' Enter`, { stdio: 'ignore' })
+    if (submit) execSync(`tmux send-keys -t '${pane}' '' Enter`, { stdio: 'ignore' })
+    execSync(
+      `tmux send-keys -t '${pane}' '${escaped}'${submit ? ' Enter' : ''}`,
+      { stdio: 'ignore' }
+    )
     return true
   } catch {
     return false
@@ -151,17 +155,42 @@ function runAppleScript(lines: string[]): { ok: boolean; stdout: string } {
 function injectITerm(tty: string, message: string): boolean {
   const quotedTty = JSON.stringify(tty)
   const quotedMsg = JSON.stringify(message)
+  const submit = process.env.SENTINEL_AUTO_SUBMIT !== 'false'
+  // Why two phases when auto-submit is on: `write text` sends the message
+  // in bracketed-paste mode, so Claude Code treats any embedded CR as
+  // literal paste content. A real Enter keystroke via System Events is
+  // delivered outside the paste and Claude registers it as submit, exactly
+  // like a physical keypress. The keystroke requires the target session
+  // to be frontmost, so we briefly activate.
+  //
+  // When auto-submit is off, we only type. The text lands in Claude's
+  // input; the user reviews and presses Enter themselves. No focus steal.
+  const submitBlock = submit
+    ? [
+        '  activate',
+        '  select targetWindow',
+        '  tell targetWindow to select targetTab',
+        '  tell targetSession to select',
+        'end tell',
+        'delay 0.1',
+        'tell application "System Events" to key code 36',
+      ]
+    : ['end tell']
   const { ok, stdout } = runAppleScript([
     'tell application "System Events"',
     '  if not (exists process "iTerm2") then return "NOTRUNNING"',
     'end tell',
     'tell application "iTerm2"',
     '  set targetSession to missing value',
+    '  set targetTab to missing value',
+    '  set targetWindow to missing value',
     '  repeat with w in windows',
     '    repeat with t in tabs of w',
     '      repeat with s in sessions of t',
     `        if tty of s is equal to ${quotedTty} then`,
     '          set targetSession to s',
+    '          set targetTab to t',
+    '          set targetWindow to w',
     '          exit repeat',
     '        end if',
     '      end repeat',
@@ -170,9 +199,9 @@ function injectITerm(tty: string, message: string): boolean {
     '    if targetSession is not missing value then exit repeat',
     '  end repeat',
     '  if targetSession is missing value then return "NOMATCH"',
-    `  tell targetSession to write text ${quotedMsg}`,
-    '  return "OK"',
-    'end tell',
+    `  tell targetSession to write text ${quotedMsg} newline no`,
+    ...submitBlock,
+    'return "OK"',
   ])
   return ok && stdout === 'OK'
 }

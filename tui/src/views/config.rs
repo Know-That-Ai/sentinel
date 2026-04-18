@@ -112,13 +112,32 @@ fn render_repos(f: &mut Frame, area: Rect, cfg: &crate::api::Config) {
 fn render_dispatch(f: &mut Frame, area: Rect, cfg: &crate::api::Config) {
     let lines = vec![
         Line::from(Span::styled(
-            "Automatically dispatch vs. notify only:",
+            "Unlinked-PR fallback — when no Claude session is linked",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(Span::styled(
+            "to a PR, should Sentinel auto-dispatch or just notify?",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(Span::styled(
+            "(Linked sessions always get injected, regardless.)",
             Style::default().fg(Color::DarkGray),
         )),
         Line::raw(""),
         flag_line("BugBot", cfg.auto_dispatch_bugbot),
         flag_line("CodeQL", cfg.auto_dispatch_codeql),
         flag_line("CI    ", cfg.auto_dispatch_ci),
+        Line::raw(""),
+        Line::from(Span::styled(
+            "Injection mode",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::raw(""),
+        submit_line(cfg.auto_submit),
+        Line::from(Span::styled(
+            "  (Terminal.app always submits — toggle only affects iTerm2 / tmux.)",
+            Style::default().fg(Color::DarkGray),
+        )),
         Line::raw(""),
         Line::from(Span::styled(
             "Webhook endpoints",
@@ -157,6 +176,25 @@ fn flag_line<'a>(label: &'a str, on: bool) -> Line<'a> {
     Line::from(vec![
         Span::raw("  "),
         Span::styled(format!("{label}  "), Style::default().fg(Color::White)),
+        Span::styled(
+            text,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+    ])
+}
+
+fn submit_line<'a>(on: bool) -> Line<'a> {
+    let (label, text, color) = if on {
+        ("auto-submit", "ON  focus + Enter", Color::Green)
+    } else {
+        ("auto-submit", "OFF  type only, you press Enter", Color::Yellow)
+    };
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            format!("{label}  "),
+            Style::default().fg(Color::White),
+        ),
         Span::styled(
             text,
             Style::default().fg(color).add_modifier(Modifier::BOLD),

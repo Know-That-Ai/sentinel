@@ -23,6 +23,7 @@ healthRouter.get('/state/config', (_req, res) => {
     autoDispatchBugbot: process.env.AUTO_DISPATCH_BUGBOT === 'true',
     autoDispatchCodeql: process.env.AUTO_DISPATCH_CODEQL === 'true',
     autoDispatchCI: process.env.AUTO_DISPATCH_CI === 'true',
+    autoSubmit: process.env.SENTINEL_AUTO_SUBMIT !== 'false',
   })
 })
 

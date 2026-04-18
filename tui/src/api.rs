@@ -87,6 +87,12 @@ pub struct Config {
     pub auto_dispatch_codeql: bool,
     #[serde(rename = "autoDispatchCI")]
     pub auto_dispatch_ci: bool,
+    #[serde(default = "default_true")]
+    pub auto_submit: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Deserialize, Clone, Debug)]
