@@ -7,8 +7,9 @@ use ratatui::{
 };
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
-    if app.snap.webhook_log.is_empty() {
-        render_empty(f, area);
+    let entries = app.audit_entries();
+    if entries.is_empty() {
+        render_empty(f, area, app);
         return;
     }
 
@@ -17,14 +18,12 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(area);
 
-    render_list(f, layout[0], app);
-    render_detail(f, layout[1], app);
+    render_list(f, layout[0], app, &entries);
+    render_detail(f, layout[1], app, &entries);
 }
 
-fn render_list(f: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app
-        .snap
-        .webhook_log
+fn render_list(f: &mut Frame, area: Rect, app: &App, entries: &[&WebhookLogEntry]) {
+    let items: Vec<ListItem> = entries
         .iter()
         .enumerate()
         .map(|(i, e)| {
@@ -78,19 +77,32 @@ fn render_list(f: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
+    let hidden_count = app.snap.webhook_log.len().saturating_sub(entries.len());
+    let title = if app.audit_show_all {
+        format!(" webhook audit  ·  showing all {} ", app.snap.webhook_log.len())
+    } else if hidden_count > 0 {
+        format!(
+            " webhook audit  ·  {} interesting · {} hidden (press a) ",
+            entries.len(),
+            hidden_count
+        )
+    } else {
+        format!(" webhook audit  ·  {} ", entries.len())
+    };
+
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(
-            " webhook audit ",
+            title,
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         ))
         .padding(Padding::horizontal(1));
     f.render_widget(List::new(items).block(block), area);
 }
 
-fn render_detail(f: &mut Frame, area: Rect, app: &App) {
-    let Some(e) = app.snap.webhook_log.get(app.audit_cursor) else {
+fn render_detail(f: &mut Frame, area: Rect, app: &App, entries: &[&WebhookLogEntry]) {
+    let Some(e) = entries.get(app.audit_cursor) else {
         return;
     };
 
@@ -147,19 +159,38 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
-fn render_empty(f: &mut Frame, area: Rect) {
-    let msg = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  No webhooks received yet.",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Every incoming webhook — dispatched, notified, or dropped — will appear here with a reason.",
-            Style::default().fg(Color::DarkGray),
-        )),
-    ];
+fn render_empty(f: &mut Frame, area: Rect, app: &App) {
+    let total = app.snap.webhook_log.len();
+    let msg = if total == 0 {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  No webhooks received yet.",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Every incoming webhook — dispatched, notified, or dropped — will appear here with a reason.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]
+    } else {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Inbox zero on the interesting stuff — ", Style::default().fg(Color::Green)),
+                Span::styled(
+                    format!("{total} webhook(s) hidden by the default filter."),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press [a] to show all.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))

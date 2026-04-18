@@ -26,9 +26,15 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Length(10), Constraint::Min(6)])
         .split(layout[0]);
 
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(14), Constraint::Min(6)])
+        .split(layout[1]);
+
     render_reacts_to(f, left[0], cfg);
     render_repos(f, left[1], cfg);
-    render_dispatch(f, layout[1], cfg);
+    render_dispatch(f, right[0], cfg);
+    render_identity(f, right[1], cfg);
 }
 
 fn render_reacts_to(f: &mut Frame, area: Rect, cfg: &crate::api::Config) {
@@ -112,15 +118,15 @@ fn render_repos(f: &mut Frame, area: Rect, cfg: &crate::api::Config) {
 fn render_dispatch(f: &mut Frame, area: Rect, cfg: &crate::api::Config) {
     let lines = vec![
         Line::from(Span::styled(
-            "Unlinked-PR fallback — when no Claude session is linked",
+            "Unlinked-PR fallback — when no Claude session is",
             Style::default().fg(Color::DarkGray),
         )),
         Line::from(Span::styled(
-            "to a PR, should Sentinel auto-dispatch or just notify?",
+            "linked, auto-dispatch or just notify?",
             Style::default().fg(Color::DarkGray),
         )),
         Line::from(Span::styled(
-            "(Linked sessions always get injected, regardless.)",
+            "(Linked sessions always get injected regardless.)",
             Style::default().fg(Color::DarkGray),
         )),
         Line::raw(""),
@@ -135,15 +141,27 @@ fn render_dispatch(f: &mut Frame, area: Rect, cfg: &crate::api::Config) {
         Line::raw(""),
         submit_line(cfg.auto_submit),
         Line::from(Span::styled(
-            "  (Terminal.app always submits — toggle only affects iTerm2 / tmux.)",
+            "  (Terminal.app always submits — toggle only affects",
             Style::default().fg(Color::DarkGray),
         )),
-        Line::raw(""),
         Line::from(Span::styled(
-            "Webhook endpoints",
+            "  iTerm2 / tmux.)",
             Style::default().fg(Color::DarkGray),
         )),
-        Line::raw(""),
+    ];
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Span::styled(
+            " dispatch ",
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+        ))
+        .padding(Padding::new(2, 2, 1, 1));
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
+}
+
+fn render_identity(f: &mut Frame, area: Rect, cfg: &crate::api::Config) {
+    let lines = vec![
         kv("smee   ", &nonempty(&cfg.smee_url)),
         kv("agent  ", &cfg.preferred_agent),
         kv("org    ", &cfg.github_org),
@@ -155,12 +173,13 @@ fn render_dispatch(f: &mut Frame, area: Rect, cfg: &crate::api::Config) {
                 format!("{} ({})", cfg.user_label, cfg.github_username)
             },
         ),
+        kv("port   ", &cfg.port.to_string()),
     ];
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(
-            " dispatch & identity ",
+            " endpoints & identity ",
             Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
         ))
         .padding(Padding::new(2, 2, 1, 1));
