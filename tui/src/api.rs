@@ -34,6 +34,10 @@ impl Client {
         self.get("/state/unreviewed")
     }
 
+    pub fn webhook_log(&self) -> Result<Vec<WebhookLogEntry>> {
+        self.get("/state/webhook-log?limit=200")
+    }
+
     pub fn mark_reviewed(&self, id: &str) -> Result<()> {
         let url = format!("{}/state/mark-reviewed/{}", self.base, id);
         self.http.post(&url).send()?.error_for_status()?;
@@ -106,6 +110,20 @@ pub struct Session {
     pub repo_path: String,
     pub linked_at: String,
     pub unlinked_at: Option<String>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct WebhookLogEntry {
+    pub id: String,
+    pub received_at: String,
+    pub event_type: String,
+    pub action: Option<String>,
+    pub repo: Option<String>,
+    pub pr_number: Option<i64>,
+    pub actor: Option<String>,
+    pub disposition: String,
+    pub reason: Option<String>,
+    pub delivery_id: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]

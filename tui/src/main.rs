@@ -72,7 +72,8 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
         (KeyCode::Char('1'), _) => app.tab = Tab::Dashboard,
         (KeyCode::Char('2'), _) => app.tab = Tab::Sessions,
         (KeyCode::Char('3'), _) => app.tab = Tab::Events,
-        (KeyCode::Char('4'), _) => app.tab = Tab::Config,
+        (KeyCode::Char('4'), _) => app.tab = Tab::Audit,
+        (KeyCode::Char('5'), _) => app.tab = Tab::Config,
         (KeyCode::Char('r'), _) => {
             if app.tab == Tab::Events {
                 if let Err(e) = app.mark_reviewed_selected() {

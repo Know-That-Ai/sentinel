@@ -21,6 +21,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Tab::Dashboard => views::dashboard::render(f, layout[1], app),
         Tab::Sessions => views::sessions::render(f, layout[1], app),
         Tab::Events => views::events::render(f, layout[1], app),
+        Tab::Audit => views::audit::render(f, layout[1], app),
         Tab::Config => views::config::render(f, layout[1], app),
     }
     render_footer(f, layout[2], app);
@@ -96,6 +97,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
         Tab::Dashboard => "[tab] switch  [r] refresh  [q] quit",
         Tab::Sessions => "[j/k] move  [o] open PR  [r] refresh  [q] quit",
         Tab::Events => "[j/k] move  [r] mark reviewed  [d] dispatch  [o] open  [q] quit",
+        Tab::Audit => "[j/k] move  [r] refresh  [q] quit",
         Tab::Config => "[tab] switch  [r] refresh  [q] quit",
     };
 
