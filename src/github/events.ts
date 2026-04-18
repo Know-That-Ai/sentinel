@@ -52,7 +52,16 @@ export function classifyCheckAsScannerBot(
 
 export function classifySource(login: string, type: string): EventSource {
   const loginLower = login.toLowerCase()
-  if (loginLower.includes('bugbot')) return 'bugbot'
+  // Cursor's BugBot posts as `cursor[bot]` (current) or `cursor-bugbot[bot]`
+  // (legacy). Match both so it's surfaced as a scanner finding, not a
+  // generic bot comment.
+  if (
+    loginLower.includes('bugbot') ||
+    loginLower === 'cursor[bot]' ||
+    loginLower.startsWith('cursor-bugbot')
+  ) {
+    return 'bugbot'
+  }
   if (loginLower.includes('codeql') || loginLower.includes('github-advanced-security')) return 'codeql'
   if (type === 'Bot') return 'bot'
   return 'human'
