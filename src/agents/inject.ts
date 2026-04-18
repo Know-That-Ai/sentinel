@@ -24,17 +24,31 @@ export async function injectIntoSession(
 
   await ensureGitignore(session.repo_path, '.sentinel/')
 
+  // What gets TYPED into the terminal is a short one-liner. The full
+  // multi-line prompt lives on disk. Without this split, each newline in
+  // the prompt would be typed as Enter and Claude would submit fragments.
+  const trigger = buildTriggerMessage(batch)
+
   if (session.tmux_pane) {
-    const delivered = await tryDeliverViaTmux(session.tmux_pane, prompt)
+    const delivered = await tryDeliverViaTmux(session.tmux_pane, trigger)
     if (delivered) return
     // Pane is stale / tmux unreachable — fall through to osascript.
   }
 
   const tty = resolveTty(session)
   if (tty) {
-    await deliverViaOsascript(tty, inboxFile)
+    await deliverViaOsascript(tty, trigger)
   }
   // If no tty resolvable, inbox file is still written — Claude can read it.
+}
+
+function buildTriggerMessage(batch: EventBatch): string {
+  const n = batch.events.length
+  const sources = [...new Set(batch.events.map((e) => e.source))].join(', ')
+  return (
+    `Sentinel: ${n} ${sources} issue${n > 1 ? 's' : ''} on PR #${batch.prNumber} — ` +
+    `read .sentinel/inbox/${batch.prNumber}.md and address per the instructions in that file.`
+  )
 }
 
 async function ensureGitignore(repoPath: string, entry: string): Promise<void> {
@@ -113,22 +127,14 @@ function parentPid(pid: number): number | null {
   }
 }
 
-function isAppRunning(appName: string): boolean {
-  try {
-    execSync(`pgrep -x ${JSON.stringify(appName)}`, { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function deliverViaOsascript(tty: string, inboxFile: string): Promise<void> {
-  // Try iTerm2 first if running; fall back to Terminal.app.
-  // AppleScript reads the already-written inbox file via `do shell script cat`
-  // so there's no string escaping between Node and AppleScript.
-  if (isAppRunning('iTerm2') && injectITerm(tty, inboxFile)) return
-  if (isAppRunning('Terminal') && injectTerminal(tty, inboxFile)) return
-  // Silent fallback — inbox file on disk is the durable artifact.
+async function deliverViaOsascript(tty: string, message: string): Promise<void> {
+  // Each inject* script asks System Events whether the terminal app is
+  // running before doing anything — so we won't accidentally launch iTerm or
+  // Terminal, and pgrep/comm-name quirks (macOS reports the full executable
+  // path, so `pgrep -x iTerm2` misses) can't cause silent drops.
+  if (injectITerm(tty, message)) return
+  if (injectTerminal(tty, message)) return
+  // Both declined — inbox file on disk remains the durable artifact.
 }
 
 function runAppleScript(lines: string[]): { ok: boolean; stdout: string } {
@@ -142,10 +148,13 @@ function runAppleScript(lines: string[]): { ok: boolean; stdout: string } {
   return { ok, stdout }
 }
 
-function injectITerm(tty: string, inboxFile: string): boolean {
+function injectITerm(tty: string, message: string): boolean {
   const quotedTty = JSON.stringify(tty)
-  const quotedFile = shellQuote(inboxFile)
+  const quotedMsg = JSON.stringify(message)
   const { ok, stdout } = runAppleScript([
+    'tell application "System Events"',
+    '  if not (exists process "iTerm2") then return "NOTRUNNING"',
+    'end tell',
     'tell application "iTerm2"',
     '  set targetSession to missing value',
     '  repeat with w in windows',
@@ -161,18 +170,20 @@ function injectITerm(tty: string, inboxFile: string): boolean {
     '    if targetSession is not missing value then exit repeat',
     '  end repeat',
     '  if targetSession is missing value then return "NOMATCH"',
-    `  set msg to (do shell script "cat " & ${quotedFile})`,
-    '  tell targetSession to write text msg',
+    `  tell targetSession to write text ${quotedMsg}`,
     '  return "OK"',
     'end tell',
   ])
   return ok && stdout === 'OK'
 }
 
-function injectTerminal(tty: string, inboxFile: string): boolean {
+function injectTerminal(tty: string, message: string): boolean {
   const quotedTty = JSON.stringify(tty)
-  const quotedFile = shellQuote(inboxFile)
+  const quotedMsg = JSON.stringify(message)
   const { ok, stdout } = runAppleScript([
+    'tell application "System Events"',
+    '  if not (exists process "Terminal") then return "NOTRUNNING"',
+    'end tell',
     'tell application "Terminal"',
     '  set targetTab to missing value',
     '  repeat with w in windows',
@@ -185,17 +196,9 @@ function injectTerminal(tty: string, inboxFile: string): boolean {
     '    if targetTab is not missing value then exit repeat',
     '  end repeat',
     '  if targetTab is missing value then return "NOMATCH"',
-    `  set msg to (do shell script "cat " & ${quotedFile})`,
-    '  do script msg in targetTab',
+    `  do script ${quotedMsg} in targetTab`,
     '  return "OK"',
     'end tell',
   ])
   return ok && stdout === 'OK'
-}
-
-function shellQuote(path: string): string {
-  // Produces an AppleScript expression that is itself a shell-safe single-quoted string.
-  // e.g.  "'/Users/dylan/sentinel/inbox/42.md'"  as an AppleScript string literal.
-  const inner = path.replace(/'/g, `'\\''`)
-  return JSON.stringify(`'${inner}'`)
 }
