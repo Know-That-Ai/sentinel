@@ -428,6 +428,75 @@ async function cmdLogs(): Promise<void> {
   await new Promise<void>((resolve) => child.on('exit', () => resolve()))
 }
 
+async function cmdWebhooks(): Promise<void> {
+  const rotate = args.includes('--rotate-smee')
+  const sentinelDir = path.resolve(__dirname, '..')
+  const envPath = path.join(sentinelDir, '.env')
+
+  let smeeUrl = process.env.SMEE_URL ?? ''
+  const pat = process.env.GITHUB_PAT ?? ''
+  const secret = process.env.WEBHOOK_SECRET ?? ''
+  const org = process.env.GITHUB_ORG ?? ''
+
+  if (!pat || !secret || !org) {
+    console.error('Missing config. Ensure GITHUB_PAT, WEBHOOK_SECRET, and GITHUB_ORG are set in .env.')
+    process.exit(1)
+  }
+
+  if (rotate || !smeeUrl) {
+    smeeUrl = await generateSmeeUrl()
+    await writeEnvUpdate(envPath, 'SMEE_URL', smeeUrl)
+    console.log(`Generated new smee channel: ${smeeUrl}`)
+    console.log('Restarting daemon so smee-client reconnects to the new URL...')
+    try {
+      execSync(`launchctl kickstart -k gui/$(id -u)/com.sentinel.daemon`, { stdio: 'ignore' })
+    } catch {
+      console.warn('Could not restart the daemon automatically — restart it manually.')
+    }
+  }
+
+  const { setupWebhooks } = await import('../scripts/setup-webhook.js')
+  const result = await setupWebhooks({
+    webhookUrl: smeeUrl,
+    org,
+    secret,
+    pat,
+    updateExisting: rotate,
+  })
+
+  console.log('')
+  console.log(`Summary: ${result.created.length} created, ${result.updated.length} updated, ${result.skipped.length} skipped, ${result.errors.length} errored`)
+  if (result.errors.length > 0) {
+    console.log('Errors:')
+    for (const e of result.errors) console.log(`  ${e.repo}: ${e.message}`)
+  }
+}
+
+async function generateSmeeUrl(): Promise<string> {
+  // smee.io returns the new channel URL as the Location header on a redirect.
+  const res = await fetch('https://smee.io/new', { redirect: 'manual' })
+  const loc = res.headers.get('location')
+  if (!loc) throw new Error(`smee.io did not return a redirect (status ${res.status})`)
+  return loc.startsWith('http') ? loc : `https://smee.io${loc}`
+}
+
+async function writeEnvUpdate(envPath: string, key: string, value: string): Promise<void> {
+  const fs = await import('fs/promises')
+  let content = ''
+  try {
+    content = await fs.readFile(envPath, 'utf-8')
+  } catch {
+    // new file
+  }
+  const line = `${key}=${value}`
+  if (new RegExp(`^${key}=`, 'm').test(content)) {
+    content = content.replace(new RegExp(`^${key}=.*$`, 'm'), line)
+  } else {
+    content = content + (content.endsWith('\n') || content.length === 0 ? '' : '\n') + line + '\n'
+  }
+  await fs.writeFile(envPath, content, 'utf-8')
+}
+
 async function main(): Promise<void> {
   switch (command) {
     case 'link':
@@ -463,6 +532,9 @@ async function main(): Promise<void> {
     case 'logs':
       await cmdLogs()
       break
+    case 'webhooks':
+      await cmdWebhooks()
+      break
     default:
       console.log('Usage: sentinel <command>')
       console.log('')
@@ -476,6 +548,7 @@ async function main(): Promise<void> {
       console.log('  tui                           Open the interactive dashboard')
       console.log('  start | stop | restart        Control the launchd daemon')
       console.log('  logs                          Tail ~/.sentinel/*.log')
+      console.log('  webhooks [--rotate-smee]      Register GitHub webhooks from .env')
       console.log('')
       console.log('Ops:')
       console.log('  flush --pr <n>                Re-fetch and re-dispatch for a PR')
