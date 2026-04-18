@@ -1,7 +1,21 @@
 import { Router, raw } from 'express'
 import crypto from 'crypto'
-import { classifyCheckAsScannerBot } from '../github/events.js'
-import { handleScannerCheckCompleted, handleCIFailure, unlinkSession } from '../agents/index.js'
+import {
+  classifyCheckAsScannerBot,
+  normalizeScannerComment,
+  type GitHubComment,
+  type PRMeta,
+  type SentinelEvent,
+  type EventBatch,
+} from '../github/events.js'
+import {
+  handleScannerCheckCompleted,
+  handleCIFailure,
+  unlinkSession,
+} from '../agents/index.js'
+import * as queries from '../db/queries.js'
+import { injectIntoSession } from '../agents/inject.js'
+import { sendBatchNotification } from '../notifications/index.js'
 
 export const webhookRouter = Router()
 
@@ -38,6 +52,9 @@ webhookRouter.post('/webhook', raw({ type: 'application/json' }), async (req, re
     return
   }
 
+  const action = (payload as { action?: string }).action ?? '-'
+  console.log(`[webhook] ${event} (${action})`)
+
   try {
     await routeWebhook(event, payload)
   } catch (err) {
@@ -52,6 +69,12 @@ async function routeWebhook(event: string, payload: Record<string, unknown>): Pr
     await handleCheckRun(payload)
   } else if (event === 'pull_request') {
     await handlePullRequest(payload)
+  } else if (event === 'pull_request_review_comment') {
+    await handleReviewComment(payload)
+  } else if (event === 'issue_comment') {
+    await handleIssueComment(payload)
+  } else if (event === 'pull_request_review') {
+    await handlePullRequestReview(payload)
   }
 }
 
@@ -113,5 +136,125 @@ async function handlePullRequest(payload: Record<string, unknown>): Promise<void
   const p = payload as unknown as PullRequestPayload
   if (p.action === 'closed' && p.pull_request) {
     await unlinkSession(p.repository.full_name, p.pull_request.number, 'pr_closed')
+  }
+}
+
+interface ReviewCommentPayload {
+  action: string
+  comment: GitHubComment
+  pull_request: {
+    number: number
+    title: string
+    html_url: string
+    user: { login: string } | null
+  }
+  repository: { full_name: string }
+}
+
+async function handleReviewComment(payload: Record<string, unknown>): Promise<void> {
+  const p = payload as unknown as ReviewCommentPayload
+  if (p.action !== 'created') return
+  const actor = p.comment.user?.login
+  if (!actor || !isScannerBot(actor)) return
+
+  const event = normalizeScannerComment(p.comment, p.repository.full_name, p.pull_request.number, {
+    prTitle: p.pull_request.title,
+    prUrl: p.pull_request.html_url,
+    prAuthor: p.pull_request.user?.login ?? '',
+  })
+  await recordAndDispatch(event, p.repository.full_name, p.pull_request.number, event.prTitle, event.prUrl)
+}
+
+interface IssueCommentPayload {
+  action: string
+  comment: GitHubComment
+  issue: {
+    number: number
+    title: string
+    html_url: string
+    pull_request?: unknown
+    user: { login: string } | null
+  }
+  repository: { full_name: string }
+}
+
+async function handleIssueComment(payload: Record<string, unknown>): Promise<void> {
+  const p = payload as unknown as IssueCommentPayload
+  if (p.action !== 'created') return
+  if (!p.issue.pull_request) return // only care about comments on PRs
+  const actor = p.comment.user?.login
+  if (!actor || !isScannerBot(actor)) return
+
+  const event = normalizeScannerComment(p.comment, p.repository.full_name, p.issue.number, {
+    prTitle: p.issue.title,
+    prUrl: p.issue.html_url,
+    prAuthor: p.issue.user?.login ?? '',
+  })
+  await recordAndDispatch(event, p.repository.full_name, p.issue.number, event.prTitle, event.prUrl)
+}
+
+interface PullRequestReviewPayload {
+  action: string
+  review: {
+    id: number
+    user: { login: string } | null
+    body: string | null
+    html_url: string
+    submitted_at: string
+  }
+  pull_request: {
+    number: number
+    title: string
+    html_url: string
+    user: { login: string } | null
+  }
+  repository: { full_name: string }
+}
+
+async function handlePullRequestReview(payload: Record<string, unknown>): Promise<void> {
+  const p = payload as unknown as PullRequestReviewPayload
+  if (p.action !== 'submitted') return
+  const actor = p.review.user?.login
+  if (!actor || !isScannerBot(actor)) return
+  if (!p.review.body) return
+
+  const comment: GitHubComment = {
+    id: p.review.id,
+    user: { login: actor, type: 'Bot' },
+    body: p.review.body,
+    html_url: p.review.html_url,
+    created_at: p.review.submitted_at,
+  }
+  const event = normalizeScannerComment(comment, p.repository.full_name, p.pull_request.number, {
+    prTitle: p.pull_request.title,
+    prUrl: p.pull_request.html_url,
+    prAuthor: p.pull_request.user?.login ?? '',
+  })
+  await recordAndDispatch(event, p.repository.full_name, p.pull_request.number, event.prTitle, event.prUrl)
+}
+
+function isScannerBot(login: string): boolean {
+  const configured = (process.env.SCANNER_BOT_LOGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return configured.includes(login)
+}
+
+async function recordAndDispatch(
+  event: SentinelEvent,
+  repo: string,
+  prNumber: number,
+  prTitle: string,
+  prUrl: string
+): Promise<void> {
+  queries.insertEvent(event)
+  const batch: EventBatch = { repo, prNumber, events: [event] }
+  const prMeta: PRMeta = { prTitle, prUrl }
+  const linked = queries.getLinkedSession(repo, prNumber)
+  if (linked && !linked.unlinked_at) {
+    await injectIntoSession(linked, batch, prMeta)
+  } else {
+    await sendBatchNotification(batch, prMeta)
   }
 }

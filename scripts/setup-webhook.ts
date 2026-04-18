@@ -1,6 +1,12 @@
 import { Octokit } from '@octokit/rest'
 
-const EVENTS_TO_SUBSCRIBE = ['check_run', 'pull_request', 'pull_request_review_comment'] as const
+const EVENTS_TO_SUBSCRIBE = [
+  'check_run',
+  'pull_request',
+  'pull_request_review_comment',
+  'pull_request_review',
+  'issue_comment',
+] as const
 
 export interface SetupWebhooksOptions {
   webhookUrl: string
@@ -38,6 +44,21 @@ export async function setupWebhooks(opts: SetupWebhooksOptions): Promise<SetupWe
       const sameUrl = hooks.find((h) => h.config.url === webhookUrl)
 
       if (sameUrl) {
+        // URL matches — check whether events are current. If not, patch.
+        const current = new Set(sameUrl.events)
+        const missing = EVENTS_TO_SUBSCRIBE.filter((e) => !current.has(e))
+        if (missing.length > 0) {
+          await octokit.repos.updateWebhook({
+            owner,
+            repo: repoName,
+            hook_id: sameUrl.id,
+            events: [...EVENTS_TO_SUBSCRIBE],
+            active: true,
+          })
+          console.log(`  [update] ${repo.full_name} — added events [${missing.join(', ')}] (id: ${sameUrl.id})`)
+          result.updated.push(repo.full_name)
+          continue
+        }
         console.log(`  [skip] ${repo.full_name} — already registered (id: ${sameUrl.id})`)
         result.skipped.push(repo.full_name)
         continue
