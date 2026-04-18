@@ -172,6 +172,7 @@ fn disposition_style(d: &str) -> (Color, &'static str) {
         "dispatched" => (Color::Green, "DISPATCHED"),
         "notified" => (Color::Yellow, "NOTIFIED  "),
         "dropped" => (Color::Red, "DROPPED   "),
+        "auto_closed" => (Color::Blue, "AUTO-CLOSE"),
         _ => (Color::White, "?         "),
     }
 }
@@ -190,6 +191,16 @@ fn explainer(disposition: &str, reason: Option<&str>) -> String {
             "No Claude session is linked to this PR — sent a menu-bar notification instead.".into()
         }
         ("notified", _) => "Sent a notification; no active link matched.".into(),
+        ("auto_closed", Some(r)) if r.starts_with("scanner_check_success") => {
+            "Scanner re-ran and passed — all open findings from that scanner on this PR were marked resolved.".into()
+        }
+        ("auto_closed", Some("review_comment_deleted")) => {
+            "Scanner deleted the review comment — the matching event was marked resolved.".into()
+        }
+        ("auto_closed", Some("issue_comment_deleted")) => {
+            "Scanner deleted the PR comment — the matching event was marked resolved.".into()
+        }
+        ("auto_closed", Some(r)) => format!("Auto-closed: {r}"),
         ("dropped", Some("actor_not_in_scanner_list")) => {
             "Event sender isn't in SCANNER_BOT_LOGINS — add their login to .env if this should fire.".into()
         }
@@ -198,6 +209,9 @@ fn explainer(disposition: &str, reason: Option<&str>) -> String {
         }
         ("dropped", Some("unhandled_event_type")) => {
             "Sentinel doesn't have a handler for this event type. The webhook subscription may include events we don't process.".into()
+        }
+        ("dropped", Some("delete_no_matching_event")) => {
+            "Scanner deleted a comment that wasn't tracked here — either it predates Sentinel linking this PR, or the event was already reviewed.".into()
         }
         ("dropped", Some(r)) if r.starts_with("action_") => {
             "This action variant isn't one we act on (e.g. comment 'edited' rather than 'created').".into()

@@ -16,7 +16,9 @@ CREATE TABLE IF NOT EXISTS events (
   reviewed INTEGER DEFAULT 0,
   dispatched_to TEXT,
   dispatched_at TEXT,
-  dispatch_status TEXT
+  dispatch_status TEXT,
+  auto_closed_at TEXT,
+  auto_close_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS watched_repos (

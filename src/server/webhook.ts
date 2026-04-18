@@ -19,7 +19,7 @@ import { sendBatchNotification } from '../notifications/index.js'
 
 export const webhookRouter = Router()
 
-type Disposition = 'dispatched' | 'notified' | 'dropped'
+type Disposition = 'dispatched' | 'notified' | 'dropped' | 'auto_closed'
 
 interface Outcome {
   disposition: Disposition
@@ -151,6 +151,36 @@ async function handleCheckRun(payload: Record<string, unknown>): Promise<Outcome
   const isLinked = !!(linked && !linked.unlinked_at)
 
   if (scannerLogin) {
+    // Successful scanner re-run → all previously-open findings from this
+    // scanner on this PR have been resolved. Auto-close them.
+    if (checkRun.conclusion === 'success') {
+      const closed = queries.markScannerEventsAutoClosed(
+        repo,
+        prNumber,
+        scannerLogin,
+        `scanner_check_success:${checkRun.name}`
+      )
+      // Still route through handleScannerCheckCompleted so PR-green flow
+      // can fire when all checks pass.
+      await handleScannerCheckCompleted({
+        repo,
+        prNumber,
+        checkRunId: checkRun.id,
+        checkName: checkRun.name,
+        conclusion: 'success',
+        startedAt: new Date(checkRun.started_at),
+        completedAt: new Date(checkRun.completed_at ?? new Date().toISOString()),
+        scannerLogin,
+      })
+      return {
+        disposition: 'auto_closed',
+        reason: `scanner_check_success closed ${closed} event(s)`,
+        prNumber,
+        actor: scannerLogin,
+        repo,
+      }
+    }
+
     await handleScannerCheckCompleted({
       repo,
       prNumber,
@@ -230,9 +260,6 @@ interface ReviewCommentPayload {
 
 async function handleReviewComment(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as ReviewCommentPayload
-  if (p.action !== 'created') {
-    return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
-  }
   const actor = p.comment.user?.login
   if (!actor) return { disposition: 'dropped', reason: 'no_actor' }
   if (!isScannerBot(actor)) {
@@ -243,6 +270,22 @@ async function handleReviewComment(payload: Record<string, unknown>): Promise<Ou
       actor,
       repo: p.repository.full_name,
     }
+  }
+
+  if (p.action === 'deleted') {
+    const id = queries.eventIdForComment(p.repository.full_name, p.comment.id)
+    const closed = queries.markEventAutoClosed(id, 'review_comment_deleted')
+    return {
+      disposition: closed > 0 ? 'auto_closed' : 'dropped',
+      reason: closed > 0 ? 'review_comment_deleted' : 'delete_no_matching_event',
+      prNumber: p.pull_request.number,
+      actor,
+      repo: p.repository.full_name,
+    }
+  }
+
+  if (p.action !== 'created') {
+    return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
   }
 
   const event = normalizeScannerComment(p.comment, p.repository.full_name, p.pull_request.number, {
@@ -268,9 +311,6 @@ interface IssueCommentPayload {
 
 async function handleIssueComment(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as IssueCommentPayload
-  if (p.action !== 'created') {
-    return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
-  }
   if (!p.issue.pull_request) {
     return { disposition: 'dropped', reason: 'comment_on_issue_not_pr' }
   }
@@ -284,6 +324,22 @@ async function handleIssueComment(payload: Record<string, unknown>): Promise<Out
       actor,
       repo: p.repository.full_name,
     }
+  }
+
+  if (p.action === 'deleted') {
+    const id = queries.eventIdForComment(p.repository.full_name, p.comment.id)
+    const closed = queries.markEventAutoClosed(id, 'issue_comment_deleted')
+    return {
+      disposition: closed > 0 ? 'auto_closed' : 'dropped',
+      reason: closed > 0 ? 'issue_comment_deleted' : 'delete_no_matching_event',
+      prNumber: p.issue.number,
+      actor,
+      repo: p.repository.full_name,
+    }
+  }
+
+  if (p.action !== 'created') {
+    return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
   }
 
   const event = normalizeScannerComment(p.comment, p.repository.full_name, p.issue.number, {
