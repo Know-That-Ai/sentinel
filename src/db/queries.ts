@@ -271,3 +271,59 @@ export interface WatchedRepoRow {
   last_polled: string | null
   webhook_id: number | null
 }
+
+// --- Webhook audit log ---
+
+export type WebhookDisposition = 'dispatched' | 'notified' | 'dropped'
+
+export interface WebhookLogParams {
+  id?: string
+  receivedAt?: string
+  eventType: string
+  action?: string | null
+  repo?: string | null
+  prNumber?: number | null
+  actor?: string | null
+  disposition: WebhookDisposition
+  reason?: string | null
+  deliveryId?: string | null
+}
+
+export interface WebhookLogRow {
+  id: string
+  received_at: string
+  event_type: string
+  action: string | null
+  repo: string | null
+  pr_number: number | null
+  actor: string | null
+  disposition: WebhookDisposition
+  reason: string | null
+  delivery_id: string | null
+}
+
+export function insertWebhookLog(params: WebhookLogParams): void {
+  const db = getDB()
+  db.prepare(`
+    INSERT INTO webhook_log (id, received_at, event_type, action, repo, pr_number, actor, disposition, reason, delivery_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    params.id ?? crypto.randomUUID(),
+    params.receivedAt ?? new Date().toISOString(),
+    params.eventType,
+    params.action ?? null,
+    params.repo ?? null,
+    params.prNumber ?? null,
+    params.actor ?? null,
+    params.disposition,
+    params.reason ?? null,
+    params.deliveryId ?? null,
+  )
+}
+
+export function getRecentWebhookLog(limit: number = 200): WebhookLogRow[] {
+  const db = getDB()
+  return db.prepare(
+    'SELECT * FROM webhook_log ORDER BY received_at DESC LIMIT ?'
+  ).all(limit) as WebhookLogRow[]
+}

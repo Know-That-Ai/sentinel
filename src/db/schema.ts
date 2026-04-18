@@ -74,4 +74,19 @@ CREATE TABLE IF NOT EXISTS dispatch_log (
   completed_at TEXT,
   status TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS webhook_log (
+  id TEXT PRIMARY KEY,
+  received_at TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  action TEXT,
+  repo TEXT,
+  pr_number INTEGER,
+  actor TEXT,
+  disposition TEXT NOT NULL,
+  reason TEXT,
+  delivery_id TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_log_received ON webhook_log(received_at DESC);
 `

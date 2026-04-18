@@ -1,4 +1,4 @@
-use crate::api::{Client, Config, Event, Health, Session};
+use crate::api::{Client, Config, Event, Health, Session, WebhookLogEntry};
 use anyhow::Result;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -9,17 +9,25 @@ pub enum Tab {
     Dashboard,
     Sessions,
     Events,
+    Audit,
     Config,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Dashboard, Tab::Sessions, Tab::Events, Tab::Config];
+    pub const ALL: [Tab; 5] = [
+        Tab::Dashboard,
+        Tab::Sessions,
+        Tab::Events,
+        Tab::Audit,
+        Tab::Config,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
             Tab::Dashboard => "Dashboard",
             Tab::Sessions => "Sessions",
             Tab::Events => "Events",
+            Tab::Audit => "Audit",
             Tab::Config => "Config",
         }
     }
@@ -43,6 +51,7 @@ pub struct Snapshot {
     pub config: Option<Config>,
     pub sessions: Vec<Session>,
     pub events: Vec<Event>,
+    pub webhook_log: Vec<WebhookLogEntry>,
     pub fetched_at: Instant,
     pub error: Option<String>,
 }
@@ -54,6 +63,7 @@ impl Default for Snapshot {
             config: None,
             sessions: Vec::new(),
             events: Vec::new(),
+            webhook_log: Vec::new(),
             fetched_at: Instant::now(),
             error: None,
         }
@@ -70,6 +80,7 @@ pub struct App {
     pub snap: Snapshot,
     pub sessions_cursor: usize,
     pub events_cursor: usize,
+    pub audit_cursor: usize,
     pub flash: Option<(String, Instant)>,
     pub quitting: bool,
     pub started_at: Instant,
@@ -89,6 +100,7 @@ impl App {
             snap: Snapshot::default(),
             sessions_cursor: 0,
             events_cursor: 0,
+            audit_cursor: 0,
             flash: None,
             quitting: false,
             started_at: Instant::now(),
@@ -151,6 +163,7 @@ impl App {
         let (len, cursor) = match self.tab {
             Tab::Sessions => (self.snap.sessions.len(), &mut self.sessions_cursor),
             Tab::Events => (self.snap.events.len(), &mut self.events_cursor),
+            Tab::Audit => (self.snap.webhook_log.len(), &mut self.audit_cursor),
             _ => return,
         };
         if len == 0 {
@@ -201,6 +214,10 @@ fn fetch_snapshot(client: &Client) -> Snapshot {
     match client.unreviewed() {
         Ok(e) => snap.events = e,
         Err(err) => note(&mut snap, format!("events: {err}")),
+    }
+    match client.webhook_log() {
+        Ok(w) => snap.webhook_log = w,
+        Err(err) => note(&mut snap, format!("webhook-log: {err}")),
     }
     snap.fetched_at = Instant::now();
     snap

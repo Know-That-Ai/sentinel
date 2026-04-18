@@ -19,6 +19,16 @@ import { sendBatchNotification } from '../notifications/index.js'
 
 export const webhookRouter = Router()
 
+type Disposition = 'dispatched' | 'notified' | 'dropped'
+
+interface Outcome {
+  disposition: Disposition
+  reason?: string
+  prNumber?: number
+  actor?: string
+  repo?: string
+}
+
 function verifySignature(payload: Buffer, signature: string | undefined, secret: string): boolean {
   if (!signature) return false
   const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex')
@@ -44,6 +54,7 @@ webhookRouter.post('/webhook', raw({ type: 'application/json' }), async (req, re
   }
 
   const event = req.headers['x-github-event'] as string
+  const deliveryId = (req.headers['x-github-delivery'] as string | undefined) ?? null
   let payload: Record<string, unknown>
   try {
     payload = JSON.parse(body.toString())
@@ -52,29 +63,51 @@ webhookRouter.post('/webhook', raw({ type: 'application/json' }), async (req, re
     return
   }
 
-  const action = (payload as { action?: string }).action ?? '-'
-  console.log(`[webhook] ${event} (${action})`)
+  const action = (payload as { action?: string }).action ?? null
+  const repo = (payload as { repository?: { full_name?: string } }).repository?.full_name ?? null
 
+  let outcome: Outcome
   try {
-    await routeWebhook(event, payload)
+    outcome = await routeWebhook(event, payload)
   } catch (err) {
     console.error('Webhook handler error:', err)
+    outcome = { disposition: 'dropped', reason: `handler_error: ${String(err)}` }
   }
+
+  queries.insertWebhookLog({
+    eventType: event,
+    action,
+    repo: outcome.repo ?? repo,
+    prNumber: outcome.prNumber ?? null,
+    actor: outcome.actor ?? null,
+    disposition: outcome.disposition,
+    reason: outcome.reason ?? null,
+    deliveryId,
+  })
+  console.log(
+    `[webhook] ${event} (${action ?? '-'}) → ${outcome.disposition}` +
+      (outcome.reason ? ` [${outcome.reason}]` : '')
+  )
 
   res.status(200).json({ received: true })
 })
 
-async function routeWebhook(event: string, payload: Record<string, unknown>): Promise<void> {
-  if (event === 'check_run') {
-    await handleCheckRun(payload)
-  } else if (event === 'pull_request') {
-    await handlePullRequest(payload)
-  } else if (event === 'pull_request_review_comment') {
-    await handleReviewComment(payload)
-  } else if (event === 'issue_comment') {
-    await handleIssueComment(payload)
-  } else if (event === 'pull_request_review') {
-    await handlePullRequestReview(payload)
+async function routeWebhook(event: string, payload: Record<string, unknown>): Promise<Outcome> {
+  switch (event) {
+    case 'check_run':
+      return handleCheckRun(payload)
+    case 'pull_request':
+      return handlePullRequest(payload)
+    case 'pull_request_review_comment':
+      return handleReviewComment(payload)
+    case 'issue_comment':
+      return handleIssueComment(payload)
+    case 'pull_request_review':
+      return handlePullRequestReview(payload)
+    case 'ping':
+      return { disposition: 'dropped', reason: 'ping' }
+    default:
+      return { disposition: 'dropped', reason: 'unhandled_event_type' }
   }
 }
 
@@ -92,23 +125,30 @@ interface CheckRunPayload {
   repository: { full_name: string }
 }
 
-async function handleCheckRun(payload: Record<string, unknown>): Promise<void> {
+async function handleCheckRun(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as CheckRunPayload
-  if (p.action !== 'completed' || !p.check_run) return
+  if (p.action !== 'completed' || !p.check_run) {
+    return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
+  }
 
   const checkRun = p.check_run
   const repo = p.repository.full_name
   const prNumber = checkRun.pull_requests?.[0]?.number
-  if (!prNumber) return
+  if (!prNumber) {
+    return { disposition: 'dropped', reason: 'check_has_no_pr', repo }
+  }
 
   const scannerLogins = (process.env.SCANNER_BOT_LOGINS ?? '')
-    .split(',').map(s => s.trim()).filter(Boolean)
+    .split(',').map((s) => s.trim()).filter(Boolean)
 
   const scannerLogin = classifyCheckAsScannerBot(
     checkRun.name,
     checkRun.app?.slug,
     scannerLogins
   )
+
+  const linked = queries.getLinkedSession(repo, prNumber)
+  const isLinked = !!(linked && !linked.unlinked_at)
 
   if (scannerLogin) {
     await handleScannerCheckCompleted({
@@ -121,21 +161,58 @@ async function handleCheckRun(payload: Record<string, unknown>): Promise<void> {
       completedAt: new Date(checkRun.completed_at ?? new Date().toISOString()),
       scannerLogin,
     })
-  } else if (checkRun.conclusion === 'failure') {
+    return {
+      disposition: isLinked ? 'dispatched' : 'notified',
+      reason: `scanner_check:${scannerLogin}`,
+      prNumber,
+      actor: scannerLogin,
+      repo,
+    }
+  }
+
+  if (checkRun.conclusion === 'failure') {
     await handleCIFailure({ repo, prNumber, checkRun })
+    return {
+      disposition: isLinked ? 'dispatched' : 'notified',
+      reason: 'ci_failure',
+      prNumber,
+      actor: checkRun.app?.slug ?? checkRun.name,
+      repo,
+    }
+  }
+
+  return {
+    disposition: 'dropped',
+    reason: `not_scanner_and_conclusion=${checkRun.conclusion ?? 'null'}`,
+    prNumber,
+    actor: checkRun.app?.slug ?? checkRun.name,
+    repo,
   }
 }
 
 interface PullRequestPayload {
   action: string
-  pull_request: { number: number }
+  pull_request: { number: number; user?: { login: string } | null }
   repository: { full_name: string }
 }
 
-async function handlePullRequest(payload: Record<string, unknown>): Promise<void> {
+async function handlePullRequest(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as PullRequestPayload
   if (p.action === 'closed' && p.pull_request) {
     await unlinkSession(p.repository.full_name, p.pull_request.number, 'pr_closed')
+    return {
+      disposition: 'dispatched',
+      reason: 'pr_closed_unlinked',
+      prNumber: p.pull_request.number,
+      actor: p.pull_request.user?.login ?? null ?? undefined,
+      repo: p.repository.full_name,
+    }
+  }
+  return {
+    disposition: 'dropped',
+    reason: `pr_action_${p.action}_ignored`,
+    prNumber: p.pull_request?.number,
+    repo: p.repository.full_name,
   }
 }
 
@@ -151,18 +228,29 @@ interface ReviewCommentPayload {
   repository: { full_name: string }
 }
 
-async function handleReviewComment(payload: Record<string, unknown>): Promise<void> {
+async function handleReviewComment(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as ReviewCommentPayload
-  if (p.action !== 'created') return
+  if (p.action !== 'created') {
+    return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
+  }
   const actor = p.comment.user?.login
-  if (!actor || !isScannerBot(actor)) return
+  if (!actor) return { disposition: 'dropped', reason: 'no_actor' }
+  if (!isScannerBot(actor)) {
+    return {
+      disposition: 'dropped',
+      reason: 'actor_not_in_scanner_list',
+      prNumber: p.pull_request.number,
+      actor,
+      repo: p.repository.full_name,
+    }
+  }
 
   const event = normalizeScannerComment(p.comment, p.repository.full_name, p.pull_request.number, {
     prTitle: p.pull_request.title,
     prUrl: p.pull_request.html_url,
     prAuthor: p.pull_request.user?.login ?? '',
   })
-  await recordAndDispatch(event, p.repository.full_name, p.pull_request.number, event.prTitle, event.prUrl)
+  return recordAndDispatch(event, p.repository.full_name, p.pull_request.number, event.prTitle, event.prUrl, actor)
 }
 
 interface IssueCommentPayload {
@@ -178,19 +266,32 @@ interface IssueCommentPayload {
   repository: { full_name: string }
 }
 
-async function handleIssueComment(payload: Record<string, unknown>): Promise<void> {
+async function handleIssueComment(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as IssueCommentPayload
-  if (p.action !== 'created') return
-  if (!p.issue.pull_request) return // only care about comments on PRs
+  if (p.action !== 'created') {
+    return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
+  }
+  if (!p.issue.pull_request) {
+    return { disposition: 'dropped', reason: 'comment_on_issue_not_pr' }
+  }
   const actor = p.comment.user?.login
-  if (!actor || !isScannerBot(actor)) return
+  if (!actor) return { disposition: 'dropped', reason: 'no_actor' }
+  if (!isScannerBot(actor)) {
+    return {
+      disposition: 'dropped',
+      reason: 'actor_not_in_scanner_list',
+      prNumber: p.issue.number,
+      actor,
+      repo: p.repository.full_name,
+    }
+  }
 
   const event = normalizeScannerComment(p.comment, p.repository.full_name, p.issue.number, {
     prTitle: p.issue.title,
     prUrl: p.issue.html_url,
     prAuthor: p.issue.user?.login ?? '',
   })
-  await recordAndDispatch(event, p.repository.full_name, p.issue.number, event.prTitle, event.prUrl)
+  return recordAndDispatch(event, p.repository.full_name, p.issue.number, event.prTitle, event.prUrl, actor)
 }
 
 interface PullRequestReviewPayload {
@@ -211,12 +312,31 @@ interface PullRequestReviewPayload {
   repository: { full_name: string }
 }
 
-async function handlePullRequestReview(payload: Record<string, unknown>): Promise<void> {
+async function handlePullRequestReview(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as PullRequestReviewPayload
-  if (p.action !== 'submitted') return
+  if (p.action !== 'submitted') {
+    return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
+  }
   const actor = p.review.user?.login
-  if (!actor || !isScannerBot(actor)) return
-  if (!p.review.body) return
+  if (!actor) return { disposition: 'dropped', reason: 'no_actor' }
+  if (!isScannerBot(actor)) {
+    return {
+      disposition: 'dropped',
+      reason: 'actor_not_in_scanner_list',
+      prNumber: p.pull_request.number,
+      actor,
+      repo: p.repository.full_name,
+    }
+  }
+  if (!p.review.body) {
+    return {
+      disposition: 'dropped',
+      reason: 'review_has_no_body',
+      prNumber: p.pull_request.number,
+      actor,
+      repo: p.repository.full_name,
+    }
+  }
 
   const comment: GitHubComment = {
     id: p.review.id,
@@ -230,7 +350,7 @@ async function handlePullRequestReview(payload: Record<string, unknown>): Promis
     prUrl: p.pull_request.html_url,
     prAuthor: p.pull_request.user?.login ?? '',
   })
-  await recordAndDispatch(event, p.repository.full_name, p.pull_request.number, event.prTitle, event.prUrl)
+  return recordAndDispatch(event, p.repository.full_name, p.pull_request.number, event.prTitle, event.prUrl, actor)
 }
 
 function isScannerBot(login: string): boolean {
@@ -246,15 +366,17 @@ async function recordAndDispatch(
   repo: string,
   prNumber: number,
   prTitle: string,
-  prUrl: string
-): Promise<void> {
+  prUrl: string,
+  actor: string
+): Promise<Outcome> {
   queries.insertEvent(event)
   const batch: EventBatch = { repo, prNumber, events: [event] }
   const prMeta: PRMeta = { prTitle, prUrl }
   const linked = queries.getLinkedSession(repo, prNumber)
   if (linked && !linked.unlinked_at) {
     await injectIntoSession(linked, batch, prMeta)
-  } else {
-    await sendBatchNotification(batch, prMeta)
+    return { disposition: 'dispatched', reason: 'linked_session', prNumber, actor, repo }
   }
+  await sendBatchNotification(batch, prMeta)
+  return { disposition: 'notified', reason: 'no_linked_session', prNumber, actor, repo }
 }

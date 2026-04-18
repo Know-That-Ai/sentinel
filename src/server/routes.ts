@@ -37,6 +37,11 @@ healthRouter.get('/state/sessions', (_req, res) => {
   res.json(sessions)
 })
 
+healthRouter.get('/state/webhook-log', (req, res) => {
+  const limit = Math.min(parseInt((req.query.limit as string) ?? '200', 10) || 200, 1000)
+  res.json(queries.getRecentWebhookLog(limit))
+})
+
 healthRouter.post('/state/mark-reviewed/:id', (req, res) => {
   queries.markEventReviewed(req.params.id)
   res.json({ ok: true })
