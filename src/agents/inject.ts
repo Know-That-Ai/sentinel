@@ -25,8 +25,9 @@ export async function injectIntoSession(
   await ensureGitignore(session.repo_path, '.sentinel/')
 
   if (session.tmux_pane) {
-    await deliverViaTmux(session.tmux_pane, prompt)
-    return
+    const delivered = await tryDeliverViaTmux(session.tmux_pane, prompt)
+    if (delivered) return
+    // Pane is stale / tmux unreachable — fall through to osascript.
   }
 
   const tty = resolveTty(session)
@@ -51,10 +52,27 @@ async function ensureGitignore(repoPath: string, entry: string): Promise<void> {
   }
 }
 
-async function deliverViaTmux(pane: string, prompt: string): Promise<void> {
-  const escaped = prompt.replace(/'/g, `'"'"'`)
-  execSync(`tmux send-keys -t '${pane}' '' Enter`, { stdio: 'ignore' })
-  execSync(`tmux send-keys -t '${pane}' '${escaped}' Enter`, { stdio: 'ignore' })
+async function tryDeliverViaTmux(pane: string, prompt: string): Promise<boolean> {
+  try {
+    // Fail fast if the pane isn't actually live (wrong target, tmux server
+    // down, tmux not installed) instead of sending keys into nothing.
+    execSync(`tmux has-session -t ${JSON.stringify(pane.split('.')[0])}`, {
+      stdio: 'ignore',
+    })
+    execSync(`tmux display-message -t ${JSON.stringify(pane)} -p '#{pane_id}'`, {
+      stdio: 'ignore',
+    })
+  } catch {
+    return false
+  }
+  try {
+    const escaped = prompt.replace(/'/g, `'"'"'`)
+    execSync(`tmux send-keys -t '${pane}' '' Enter`, { stdio: 'ignore' })
+    execSync(`tmux send-keys -t '${pane}' '${escaped}' Enter`, { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
 }
 
 function resolveTty(session: LinkedSessionRow): string | null {
