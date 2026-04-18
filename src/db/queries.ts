@@ -46,6 +46,38 @@ export function markEventReviewed(id: string): void {
   db.prepare('UPDATE events SET reviewed = 1 WHERE id = ?').run(id)
 }
 
+export function markEventAutoClosed(id: string, reason: string): number {
+  const db = getDB()
+  const result = db.prepare(
+    `UPDATE events
+     SET reviewed = 1, auto_closed_at = ?, auto_close_reason = ?
+     WHERE id = ? AND reviewed = 0`
+  ).run(new Date().toISOString(), reason, id)
+  return result.changes
+}
+
+export function markScannerEventsAutoClosed(
+  repo: string,
+  prNumber: number,
+  actor: string,
+  reason: string
+): number {
+  const db = getDB()
+  const result = db.prepare(
+    `UPDATE events
+     SET reviewed = 1, auto_closed_at = ?, auto_close_reason = ?
+     WHERE repo = ? AND pr_number = ? AND actor = ? AND reviewed = 0`
+  ).run(new Date().toISOString(), reason, repo, prNumber, actor)
+  return result.changes
+}
+
+export function eventIdForComment(repo: string, commentId: number): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${repo}:comment:${commentId}`)
+    .digest('hex')
+}
+
 export function markEventNotified(id: string): void {
   const db = getDB()
   db.prepare('UPDATE events SET notified = 1 WHERE id = ?').run(id)
@@ -227,6 +259,8 @@ export interface EventRow {
   dispatched_to: string | null
   dispatched_at: string | null
   dispatch_status: string | null
+  auto_closed_at: string | null
+  auto_close_reason: string | null
 }
 
 export interface PRHealthRow {
