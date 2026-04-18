@@ -81,6 +81,7 @@ pub struct App {
     pub sessions_cursor: usize,
     pub events_cursor: usize,
     pub audit_cursor: usize,
+    pub audit_show_all: bool,
     pub flash: Option<(String, Instant)>,
     pub quitting: bool,
     pub started_at: Instant,
@@ -101,6 +102,7 @@ impl App {
             sessions_cursor: 0,
             events_cursor: 0,
             audit_cursor: 0,
+            audit_show_all: false,
             flash: None,
             quitting: false,
             started_at: Instant::now(),
@@ -137,6 +139,25 @@ impl App {
         self.snap.events.get(self.events_cursor)
     }
 
+    /// Audit entries after applying the current filter. When `audit_show_all`
+    /// is false, hide entries that are usually noise: github-actions and
+    /// vercel check_runs, pings, pr synchronize/edited actions that don't
+    /// match a scanner.
+    pub fn audit_entries(&self) -> Vec<&WebhookLogEntry> {
+        if self.audit_show_all {
+            return self.snap.webhook_log.iter().collect();
+        }
+        self.snap
+            .webhook_log
+            .iter()
+            .filter(|e| is_interesting(e))
+            .collect()
+    }
+
+    pub fn selected_audit_entry(&self) -> Option<&WebhookLogEntry> {
+        self.audit_entries().into_iter().nth(self.audit_cursor)
+    }
+
     pub fn selected_session(&self) -> Option<&Session> {
         self.snap.sessions.get(self.sessions_cursor)
     }
@@ -163,7 +184,7 @@ impl App {
         let (len, cursor) = match self.tab {
             Tab::Sessions => (self.snap.sessions.len(), &mut self.sessions_cursor),
             Tab::Events => (self.snap.events.len(), &mut self.events_cursor),
-            Tab::Audit => (self.snap.webhook_log.len(), &mut self.audit_cursor),
+            Tab::Audit => (self.audit_entries().len(), &mut self.audit_cursor),
             _ => return,
         };
         if len == 0 {
@@ -173,6 +194,42 @@ impl App {
         let new = (*cursor as isize + delta).rem_euclid(len as isize);
         *cursor = new as usize;
     }
+}
+
+fn is_interesting(e: &WebhookLogEntry) -> bool {
+    // Keep everything that acted on something.
+    if e.disposition != "dropped" {
+        return true;
+    }
+    let reason = e.reason.as_deref().unwrap_or("");
+    // Drop the obvious noise.
+    if reason == "ping"
+        || reason == "unhandled_event_type"
+        || reason == "comment_on_issue_not_pr"
+        || reason.starts_with("pr_action_")
+        || reason.starts_with("action_")
+    {
+        return false;
+    }
+    // check_run from a CI/build bot with no scanner match — noisy but so
+    // common it buries everything else.
+    if e.event_type == "check_run" {
+        if let Some(actor) = e.actor.as_deref() {
+            let noisy = [
+                "github-actions",
+                "vercel",
+                "vercel[bot]",
+                "netlify",
+                "netlify[bot]",
+                "dependabot",
+                "dependabot[bot]",
+            ];
+            if noisy.contains(&actor) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn spawn_poller(client: Client, tx: Sender<Msg>, refresh_rx: Receiver<()>) {
