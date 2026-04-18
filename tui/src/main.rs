@@ -91,6 +91,15 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
         }
         (KeyCode::Char('j'), _) | (KeyCode::Down, _) => app.move_cursor(1),
         (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.move_cursor(-1),
+        (KeyCode::Char('a'), _) if app.tab == Tab::Audit => {
+            app.audit_show_all = !app.audit_show_all;
+            app.audit_cursor = 0;
+            app.flash(if app.audit_show_all {
+                "showing all webhooks"
+            } else {
+                "hiding noisy drops (ctrl+a for all)"
+            });
+        }
         (KeyCode::Char('o'), _) => open_selected(app),
         _ => {}
     }

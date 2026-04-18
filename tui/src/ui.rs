@@ -97,7 +97,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
         Tab::Dashboard => "[tab] switch  [r] refresh  [q] quit",
         Tab::Sessions => "[j/k] move  [o] open PR  [r] refresh  [q] quit",
         Tab::Events => "[j/k] move  [r] mark reviewed  [d] dispatch  [o] open  [q] quit",
-        Tab::Audit => "[j/k] move  [r] refresh  [q] quit",
+        Tab::Audit => "[j/k] move  [a] toggle filter  [r] refresh  [q] quit",
         Tab::Config => "[tab] switch  [r] refresh  [q] quit",
     };
 
