@@ -5,12 +5,19 @@ import { buildBatchPrompt } from './prompts.js'
 import type { EventBatch, PRMeta } from '../github/events.js'
 import type { LinkedSessionRow } from '../db/queries.js'
 
+export interface InjectResult {
+  delivered: boolean
+  via: 'tmux' | 'iterm' | 'terminal' | 'file_only'
+  inboxPath: string
+  reason?: string
+}
+
 export async function injectIntoSession(
   session: LinkedSessionRow,
   batch: EventBatch,
   prMeta: PRMeta,
   promptOverride?: string
-): Promise<void> {
+): Promise<InjectResult> {
   const prompt = promptOverride ?? buildBatchPrompt(
     batch,
     prMeta.prTitle,
@@ -24,22 +31,40 @@ export async function injectIntoSession(
 
   await ensureGitignore(session.repo_path, '.sentinel/')
 
-  // What gets TYPED into the terminal is a short one-liner. The full
-  // multi-line prompt lives on disk. Without this split, each newline in
-  // the prompt would be typed as Enter and Claude would submit fragments.
   const trigger = buildTriggerMessage(batch)
 
   if (session.tmux_pane) {
-    const delivered = await tryDeliverViaTmux(session.tmux_pane, trigger)
-    if (delivered) return
-    // Pane is stale / tmux unreachable — fall through to osascript.
+    if (await tryDeliverViaTmux(session.tmux_pane, trigger)) {
+      return { delivered: true, via: 'tmux', inboxPath: inboxFile }
+    }
   }
 
   const tty = resolveTty(session)
-  if (tty) {
-    await deliverViaOsascript(tty, trigger)
+  if (!tty) {
+    return {
+      delivered: false,
+      via: 'file_only',
+      inboxPath: inboxFile,
+      reason: 'no_tty_resolved',
+    }
   }
-  // If no tty resolvable, inbox file is still written — Claude can read it.
+
+  if (injectITerm(tty, trigger)) return { delivered: true, via: 'iterm', inboxPath: inboxFile }
+  if (injectTerminal(tty, trigger)) return { delivered: true, via: 'terminal', inboxPath: inboxFile }
+  return {
+    delivered: false,
+    via: 'file_only',
+    inboxPath: inboxFile,
+    reason: 'no_matching_terminal_window',
+  }
+}
+
+export function focusSessionTerminal(session: LinkedSessionRow): { ok: boolean; via?: string; reason?: string } {
+  const tty = resolveTty(session)
+  if (!tty) return { ok: false, reason: 'no_tty_resolved' }
+  if (focusITerm(tty)) return { ok: true, via: 'iterm' }
+  if (focusTerminal(tty)) return { ok: true, via: 'terminal' }
+  return { ok: false, reason: 'no_matching_terminal_window' }
 }
 
 function buildTriggerMessage(batch: EventBatch): string {
@@ -131,16 +156,6 @@ function parentPid(pid: number): number | null {
   }
 }
 
-async function deliverViaOsascript(tty: string, message: string): Promise<void> {
-  // Each inject* script asks System Events whether the terminal app is
-  // running before doing anything — so we won't accidentally launch iTerm or
-  // Terminal, and pgrep/comm-name quirks (macOS reports the full executable
-  // path, so `pgrep -x iTerm2` misses) can't cause silent drops.
-  if (injectITerm(tty, message)) return
-  if (injectTerminal(tty, message)) return
-  // Both declined — inbox file on disk remains the durable artifact.
-}
-
 function runAppleScript(lines: string[]): { ok: boolean; stdout: string } {
   const args: string[] = []
   for (const line of lines) {
@@ -226,6 +241,70 @@ function injectTerminal(tty: string, message: string): boolean {
     '  end repeat',
     '  if targetTab is missing value then return "NOMATCH"',
     `  do script ${quotedMsg} in targetTab`,
+    '  return "OK"',
+    'end tell',
+  ])
+  return ok && stdout === 'OK'
+}
+
+function focusITerm(tty: string): boolean {
+  const quotedTty = JSON.stringify(tty)
+  const { ok, stdout } = runAppleScript([
+    'tell application "System Events"',
+    '  if not (exists process "iTerm2") then return "NOTRUNNING"',
+    'end tell',
+    'tell application "iTerm2"',
+    '  set targetSession to missing value',
+    '  set targetTab to missing value',
+    '  set targetWindow to missing value',
+    '  repeat with w in windows',
+    '    repeat with t in tabs of w',
+    '      repeat with s in sessions of t',
+    `        if tty of s is equal to ${quotedTty} then`,
+    '          set targetSession to s',
+    '          set targetTab to t',
+    '          set targetWindow to w',
+    '          exit repeat',
+    '        end if',
+    '      end repeat',
+    '      if targetSession is not missing value then exit repeat',
+    '    end repeat',
+    '    if targetSession is not missing value then exit repeat',
+    '  end repeat',
+    '  if targetSession is missing value then return "NOMATCH"',
+    '  activate',
+    '  select targetWindow',
+    '  tell targetWindow to select targetTab',
+    '  tell targetSession to select',
+    '  return "OK"',
+    'end tell',
+  ])
+  return ok && stdout === 'OK'
+}
+
+function focusTerminal(tty: string): boolean {
+  const quotedTty = JSON.stringify(tty)
+  const { ok, stdout } = runAppleScript([
+    'tell application "System Events"',
+    '  if not (exists process "Terminal") then return "NOTRUNNING"',
+    'end tell',
+    'tell application "Terminal"',
+    '  set targetWindow to missing value',
+    '  set targetTab to missing value',
+    '  repeat with w in windows',
+    '    repeat with t in tabs of w',
+    `      if tty of t is equal to ${quotedTty} then`,
+    '        set targetWindow to w',
+    '        set targetTab to t',
+    '        exit repeat',
+    '      end if',
+    '    end repeat',
+    '    if targetTab is not missing value then exit repeat',
+    '  end repeat',
+    '  if targetTab is missing value then return "NOMATCH"',
+    '  activate',
+    '  set selected of targetTab to true',
+    '  set frontmost of targetWindow to true',
     '  return "OK"',
     'end tell',
   ])

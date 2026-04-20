@@ -85,6 +85,17 @@ healthRouter.post('/state/mark-reviewed/:id', (req, res) => {
   res.json({ ok: true })
 })
 
+healthRouter.post('/state/sessions/:id/focus', async (req, res) => {
+  const session = queries.getActiveLinkedSessions().find((s) => s.id === req.params.id)
+  if (!session) {
+    res.status(404).json({ ok: false, reason: 'session_not_found' })
+    return
+  }
+  const { focusSessionTerminal } = await import('../agents/inject.js')
+  const result = focusSessionTerminal(session)
+  res.json(result)
+})
+
 healthRouter.post('/state/dispatch/:id', async (req, res) => {
   try {
     const event = queries.getEventById(req.params.id)
@@ -111,8 +122,16 @@ healthRouter.post('/state/dispatch/:id', async (req, res) => {
     const linked = queries.getLinkedSession(event.repo, event.pr_number)
     if (linked && !linked.unlinked_at) {
       const { injectIntoSession } = await import('../agents/inject.js')
-      await injectIntoSession(linked, batch, prMeta)
-      res.json({ ok: true, mode: 'injected', session: linked.id })
+      const result = await injectIntoSession(linked, batch, prMeta)
+      res.json({
+        ok: true,
+        mode: 'injected',
+        delivered: result.delivered,
+        via: result.via,
+        reason: result.reason,
+        inboxPath: result.inboxPath,
+        session: linked.id,
+      })
       return
     }
 

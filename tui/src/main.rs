@@ -146,6 +146,11 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
             });
         }
         (KeyCode::Char('o'), _) => open_selected(app),
+        (KeyCode::Char('t'), _) if app.tab == Tab::Sessions => {
+            if let Err(e) = app.focus_selected_session() {
+                app.flash(format!("error: {e}"));
+            }
+        }
         _ => {}
     }
     Ok(false)

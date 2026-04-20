@@ -264,9 +264,37 @@ impl App {
 
     pub fn dispatch_selected(&mut self) -> Result<()> {
         if let Some(ev) = self.selected_event().cloned() {
-            self.client.dispatch(&ev.id)?;
-            self.flash(format!("dispatched: {} #{}", ev.repo, ev.pr_number));
+            let result = self.client.dispatch(&ev.id)?;
+            let msg = if result.delivered {
+                format!(
+                    "injected via {}: {} #{}",
+                    result.via.as_deref().unwrap_or("unknown"),
+                    ev.repo,
+                    ev.pr_number
+                )
+            } else {
+                format!(
+                    "wrote inbox file only ({}) — open the terminal and Claude can read it",
+                    result.reason.as_deref().unwrap_or("no_terminal")
+                )
+            };
+            self.flash(msg);
             self.request_refresh();
+        }
+        Ok(())
+    }
+
+    pub fn focus_selected_session(&mut self) -> Result<()> {
+        if let Some(s) = self.selected_session().cloned() {
+            let result = self.client.focus_session(&s.id)?;
+            if result.ok {
+                self.flash(format!("focused {} #{}", s.repo, s.pr_number));
+            } else {
+                self.flash(format!(
+                    "could not focus: {}",
+                    result.reason.as_deref().unwrap_or("unknown")
+                ));
+            }
         }
         Ok(())
     }

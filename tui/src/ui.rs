@@ -161,7 +161,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     let t = app.theme;
     let hint = match app.tab {
         Tab::Dashboard => "[tab] switch  [r] refresh  [?] help  [q] quit",
-        Tab::Sessions => "[j/k] move  [/] filter  [o] open PR  [r] refresh  [?] help  [q] quit",
+        Tab::Sessions => "[j/k] move  [/] filter  [t] focus terminal  [o] open PR  [r] refresh  [?] help  [q] quit",
         Tab::Events => "[j/k] move  [/] filter  [r] mark reviewed  [d] dispatch  [o] open  [?] help  [q] quit",
         Tab::Audit => "[j/k] move  [/] filter  [a] toggle noise  [r] refresh  [?] help  [q] quit",
         Tab::Config => "[tab] switch  [r] refresh  [?] help  [q] quit",
@@ -222,6 +222,7 @@ fn render_help_overlay(f: &mut Frame, area: Rect, app: &App) {
         Tab::Sessions => {
             lines.push(section("Sessions", t.warning));
             lines.extend([
+                key_row("t", "focus the linked terminal window", t),
                 key_row("o", "open selected PR in browser", t),
                 key_row("r", "refresh", t),
             ]);

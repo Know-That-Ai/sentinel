@@ -44,10 +44,18 @@ impl Client {
         Ok(())
     }
 
-    pub fn dispatch(&self, id: &str) -> Result<()> {
+    pub fn dispatch(&self, id: &str) -> Result<DispatchResult> {
         let url = format!("{}/state/dispatch/{}", self.base, id);
-        self.http.post(&url).send()?.error_for_status()?;
-        Ok(())
+        let res = self.http.post(&url).send()?.error_for_status()?;
+        Ok(res.json::<DispatchResult>()?)
+    }
+
+    pub fn focus_session(&self, id: &str) -> Result<FocusResult> {
+        let url = format!("{}/state/sessions/{}/focus", self.base, id);
+        let res = self.http.post(&url).send()?;
+        // Focus endpoint returns 404 if session not found — swallow so the UI
+        // can show the reason field instead of blowing up on error_for_status.
+        Ok(res.json::<FocusResult>()?)
     }
 
     fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {
@@ -97,6 +105,26 @@ pub struct Config {
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct DispatchResult {
+    #[serde(default)]
+    pub delivered: bool,
+    #[serde(default)]
+    pub via: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct FocusResult {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub via: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
