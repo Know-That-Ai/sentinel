@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS linked_sessions (
   unlinked_at TEXT,
   unlink_reason TEXT,
   sentinel_comment_id INTEGER,
+  merged_at TEXT,
   UNIQUE(repo, pr_number)
 );
 
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS pr_health (
   check_name TEXT NOT NULL,
   last_conclusion TEXT NOT NULL,
   last_run_at TEXT NOT NULL,
+  status TEXT,
   PRIMARY KEY (repo, pr_number, check_name)
 );
 

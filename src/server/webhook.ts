@@ -127,16 +127,48 @@ interface CheckRunPayload {
 
 async function handleCheckRun(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as CheckRunPayload
-  if (p.action !== 'completed' || !p.check_run) {
+  if (!p.check_run) {
     return { disposition: 'dropped', reason: `action_${p.action}_ignored` }
   }
 
   const checkRun = p.check_run
   const repo = p.repository.full_name
   const prNumber = checkRun.pull_requests?.[0]?.number
+
+  // Track the in-progress state on created/requested_action too so the UI can
+  // show a "scans running" indicator even before the first completion.
+  if (p.action === 'created' || p.action === 'rerequested') {
+    if (prNumber) {
+      queries.upsertPRHealth({
+        repo,
+        prNumber,
+        checkName: checkRun.name,
+        conclusion: 'pending',
+        lastRunAt: new Date(),
+        status: 'in_progress',
+      })
+    }
+    return { disposition: 'dropped', reason: `action_${p.action}_ignored`, repo, prNumber }
+  }
+
+  if (p.action !== 'completed') {
+    return { disposition: 'dropped', reason: `action_${p.action}_ignored`, repo, prNumber }
+  }
+
   if (!prNumber) {
     return { disposition: 'dropped', reason: 'check_has_no_pr', repo }
   }
+
+  // Mark the check completed in pr_health regardless of scanner status, so the
+  // "scans in progress" yellow state clears correctly.
+  queries.upsertPRHealth({
+    repo,
+    prNumber,
+    checkName: checkRun.name,
+    conclusion: checkRun.conclusion ?? 'unknown',
+    lastRunAt: new Date(checkRun.completed_at ?? new Date().toISOString()),
+    status: 'completed',
+  })
 
   const scannerLogins = (process.env.SCANNER_BOT_LOGINS ?? '')
     .split(',').map((s) => s.trim()).filter(Boolean)
@@ -222,20 +254,37 @@ async function handleCheckRun(payload: Record<string, unknown>): Promise<Outcome
 
 interface PullRequestPayload {
   action: string
-  pull_request: { number: number; user?: { login: string } | null }
+  pull_request: {
+    number: number
+    user?: { login: string } | null
+    merged?: boolean
+    merged_at?: string | null
+  }
   repository: { full_name: string }
 }
 
 async function handlePullRequest(payload: Record<string, unknown>): Promise<Outcome> {
   const p = payload as unknown as PullRequestPayload
   if (p.action === 'closed' && p.pull_request) {
-    await unlinkSession(p.repository.full_name, p.pull_request.number, 'pr_closed')
+    const repo = p.repository.full_name
+    const prNumber = p.pull_request.number
+    if (p.pull_request.merged) {
+      queries.markSessionMerged(repo, prNumber, p.pull_request.merged_at ?? new Date().toISOString())
+      return {
+        disposition: 'dispatched',
+        reason: 'pr_merged',
+        prNumber,
+        actor: p.pull_request.user?.login ?? undefined,
+        repo,
+      }
+    }
+    await unlinkSession(repo, prNumber, 'pr_closed')
     return {
       disposition: 'dispatched',
       reason: 'pr_closed_unlinked',
-      prNumber: p.pull_request.number,
-      actor: p.pull_request.user?.login ?? null ?? undefined,
-      repo: p.repository.full_name,
+      prNumber,
+      actor: p.pull_request.user?.login ?? undefined,
+      repo,
     }
   }
   return {

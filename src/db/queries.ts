@@ -93,15 +93,31 @@ export interface PRHealthParams {
   lastRunAt: Date
 }
 
-export function upsertPRHealth(params: PRHealthParams): void {
+export function upsertPRHealth(params: PRHealthParams & { status?: string }): void {
   const db = getDB()
   db.prepare(`
-    INSERT INTO pr_health (repo, pr_number, check_name, last_conclusion, last_run_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO pr_health (repo, pr_number, check_name, last_conclusion, last_run_at, status)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(repo, pr_number, check_name) DO UPDATE SET
       last_conclusion = excluded.last_conclusion,
-      last_run_at = excluded.last_run_at
-  `).run(params.repo, params.prNumber, params.checkName, params.conclusion, params.lastRunAt.toISOString())
+      last_run_at = excluded.last_run_at,
+      status = excluded.status
+  `).run(
+    params.repo,
+    params.prNumber,
+    params.checkName,
+    params.conclusion,
+    params.lastRunAt.toISOString(),
+    params.status ?? null
+  )
+}
+
+export function markSessionMerged(repo: string, prNumber: number, mergedAt: string): void {
+  const db = getDB()
+  db.prepare(
+    `UPDATE linked_sessions SET merged_at = ?
+     WHERE repo = ? COLLATE NOCASE AND pr_number = ?`
+  ).run(mergedAt, repo, prNumber)
 }
 
 export function getPRHealth(repo: string, prNumber: number): PRHealthRow[] {
@@ -272,6 +288,7 @@ export interface PRHealthRow {
   check_name: string
   last_conclusion: string
   last_run_at: string
+  status: string | null
 }
 
 export interface LinkedSessionRow {
@@ -287,6 +304,7 @@ export interface LinkedSessionRow {
   unlinked_at: string | null
   unlink_reason: string | null
   sentinel_comment_id: number | null
+  merged_at: string | null
 }
 
 export interface CheckRunTriggerRow {

@@ -15,8 +15,10 @@ export function initDB(dbPath: string = 'sentinel.db'): void {
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA)
   addColumnIfMissing(db, 'linked_sessions', 'tty', 'TEXT')
+  addColumnIfMissing(db, 'linked_sessions', 'merged_at', 'TEXT')
   addColumnIfMissing(db, 'events', 'auto_closed_at', 'TEXT')
   addColumnIfMissing(db, 'events', 'auto_close_reason', 'TEXT')
+  addColumnIfMissing(db, 'pr_health', 'status', 'TEXT')
 }
 
 function addColumnIfMissing(

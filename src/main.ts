@@ -29,6 +29,35 @@ async function watchLinkedSessions(): Promise<void> {
   }, 15_000)
 }
 
+async function reconcileMergedPRs(): Promise<void> {
+  // Catch sessions whose PRs were merged while the daemon was down (or before
+  // pr.closed webhooks existed). Runs once at startup and then every 5 min.
+  const { getOctokit } = await import('./github/octokit.js')
+  const run = async () => {
+    try {
+      const octokit = getOctokit()
+      for (const s of queries.getActiveLinkedSessions()) {
+        if (s.merged_at) continue
+        const [owner, repo] = s.repo.split('/')
+        if (!owner || !repo) continue
+        try {
+          const { data } = await octokit.pulls.get({ owner, repo, pull_number: s.pr_number })
+          if (data.merged && data.merged_at) {
+            queries.markSessionMerged(s.repo, s.pr_number, data.merged_at)
+            console.log(`[reconcile] ${s.repo}#${s.pr_number} marked merged`)
+          }
+        } catch {
+          // ignore per-PR errors (rate limits, not-found, etc.)
+        }
+      }
+    } catch {
+      // missing PAT or other config — skip silently
+    }
+  }
+  await run()
+  setInterval(run, 5 * 60_000)
+}
+
 async function main(): Promise<void> {
   initDB(DB_PATH)
 
@@ -39,6 +68,8 @@ async function main(): Promise<void> {
 
   await watchLinkedSessions()
   console.log('Sentinel is running. PID watcher active.')
+
+  reconcileMergedPRs().catch((err) => console.error('[reconcile] failed:', err))
 
   const { startPoller } = await import('./github/poller.js')
   const { getOctokit } = await import('./github/octokit.js')

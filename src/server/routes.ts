@@ -47,14 +47,17 @@ healthRouter.get('/state/sessions', (_req, res) => {
     const anyFailure = checks.some(
       (c) => c.last_conclusion === 'failure' || c.last_conclusion === 'timed_out'
     )
-    const anyPending = checks.some(
-      (c) => c.last_conclusion === 'pending' || c.last_conclusion === 'in_progress'
-    )
-    let pr_status: 'green' | 'red' | 'pending' | 'unknown'
-    if (!hasChecks) pr_status = 'unknown'
-    else if (anyFailure || openEvents > 0) pr_status = 'red'
-    else if (anyPending) pr_status = 'pending'
-    else pr_status = 'green'
+    const anyInProgress = checks.some((c) => c.status === 'in_progress')
+
+    // Precedence: merged > in_progress > failure > openEvents > green > unknown
+    let pr_status: 'green' | 'red' | 'pending' | 'unknown' | 'merged'
+    if (s.merged_at) pr_status = 'merged'
+    else if (anyInProgress) pr_status = 'pending'
+    else if (anyFailure) pr_status = 'red'
+    else if (openEvents > 0) pr_status = 'red'
+    else if (hasChecks) pr_status = 'green'
+    else pr_status = 'unknown'
+
     return {
       ...s,
       pr_status,
@@ -62,6 +65,7 @@ healthRouter.get('/state/sessions', (_req, res) => {
       checks: checks.map((c) => ({
         name: c.check_name,
         conclusion: c.last_conclusion,
+        status: c.status,
         last_run_at: c.last_run_at,
       })),
     }

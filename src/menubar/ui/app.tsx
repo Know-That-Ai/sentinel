@@ -29,8 +29,9 @@ interface LinkedSession {
   agent_type: string
   unlinked_at: string | null
   terminal_pid?: number | null
-  pr_status?: 'green' | 'red' | 'pending' | 'unknown'
+  pr_status?: 'green' | 'red' | 'pending' | 'unknown' | 'merged'
   open_events?: number
+  merged_at?: string | null
 }
 
 export function App() {
@@ -131,9 +132,10 @@ export function App() {
             const status = s.pr_status ?? 'unknown'
             const dotClass = `pr-status-dot pr-status-${status}`
             const title =
+              status === 'merged' ? 'Merged ✓' :
               status === 'green' ? 'All checks green — ready to merge' :
               status === 'red' ? `${s.open_events ?? 0} open event(s) or failing check(s)` :
-              status === 'pending' ? 'Checks running' :
+              status === 'pending' ? 'Scans in progress' :
               'No checks seen yet'
             return (
               <div key={s.id} className="linked-row">

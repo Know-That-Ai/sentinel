@@ -88,7 +88,7 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::
         return;
     };
     let status_text = match s.pr_status.as_str() {
-        "green" => format!("all checks green · ready to merge"),
+        "green" => "all checks green · ready to merge".to_string(),
         "red" => {
             if s.open_events > 0 {
                 format!("{} open scanner event(s) or failing check(s)", s.open_events)
@@ -96,13 +96,15 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::
                 "one or more checks failing".into()
             }
         }
-        "pending" => "checks running…".into(),
+        "pending" => "scans in progress…".into(),
+        "merged" => "merged ✓".into(),
         _ => "no checks seen yet".into(),
     };
     let status_color = match s.pr_status.as_str() {
         "green" => t.success,
         "red" => t.error,
         "pending" => t.warning,
+        "merged" => ratatui::style::Color::Rgb(168, 85, 247),
         _ => t.muted,
     };
     let lines = vec![
@@ -184,6 +186,7 @@ fn status_badge(status: &str, t: Theme, selected: bool) -> Span<'_> {
         "green" => ("●", t.success),
         "red" => ("●", t.error),
         "pending" => ("◐", t.warning),
+        "merged" => ("●", ratatui::style::Color::Rgb(168, 85, 247)), // purple-500
         _ => ("○", t.muted),
     };
     let fg = if selected { t.selected_fg } else { color };
