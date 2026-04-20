@@ -30,7 +30,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
 
     let right = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(17), Constraint::Min(6)])
+        .constraints([Constraint::Min(14), Constraint::Min(6)])
         .split(layout[1]);
 
     render_reacts_to(f, left[0], cfg, t);
@@ -139,11 +139,7 @@ fn render_dispatch(f: &mut Frame, area: Rect, cfg: &crate::api::Config, t: Theme
         Line::raw(""),
         submit_line(cfg.auto_submit, t),
         Line::from(Span::styled(
-            "  (Terminal.app always submits — toggle only affects",
-            Style::default().fg(t.muted),
-        )),
-        Line::from(Span::styled(
-            "  iTerm2 / tmux.)",
+            "  (affects iTerm2 / tmux only)",
             Style::default().fg(t.muted),
         )),
     ];
