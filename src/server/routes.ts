@@ -92,7 +92,6 @@ healthRouter.post('/state/dispatch/:id', async (req, res) => {
       res.status(404).json({ error: 'Event not found' })
       return
     }
-    const { dispatchBatch } = await import('../agents/index.js')
     const batch = {
       repo: event.repo,
       prNumber: event.pr_number,
@@ -104,9 +103,25 @@ healthRouter.post('/state/dispatch/:id', async (req, res) => {
         githubUrl: event.github_url, receivedAt: new Date(event.received_at),
       }],
     }
-    await dispatchBatch(batch, { prTitle: event.pr_title, prUrl: event.pr_url })
-    res.json({ ok: true })
+    const prMeta = { prTitle: event.pr_title, prUrl: event.pr_url }
+
+    // If the PR has a linked Claude session, inject directly into that tab
+    // (same path as a live webhook dispatch). Otherwise fall back to
+    // spawning a headless agent, which requires REPO_PATHS to be configured.
+    const linked = queries.getLinkedSession(event.repo, event.pr_number)
+    if (linked && !linked.unlinked_at) {
+      const { injectIntoSession } = await import('../agents/inject.js')
+      await injectIntoSession(linked, batch, prMeta)
+      res.json({ ok: true, mode: 'injected', session: linked.id })
+      return
+    }
+
+    const { dispatchBatch } = await import('../agents/index.js')
+    await dispatchBatch(batch, prMeta)
+    res.json({ ok: true, mode: 'spawned' })
   } catch (err) {
-    res.status(500).json({ error: String(err) })
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[dispatch] failed:', msg)
+    res.status(500).json({ error: msg })
   }
 })
