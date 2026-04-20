@@ -1,5 +1,6 @@
 use crate::api::WebhookLogEntry;
 use crate::app::App;
+use crate::theme::Theme;
 use crate::views::relative_time;
 use ratatui::{
     prelude::*,
@@ -7,8 +8,9 @@ use ratatui::{
 };
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
-    if app.snap.webhook_log.is_empty() {
-        render_empty(f, area);
+    let entries = app.audit_entries();
+    if entries.is_empty() {
+        render_empty(f, area, app);
         return;
     }
 
@@ -17,23 +19,22 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(area);
 
-    render_list(f, layout[0], app);
-    render_detail(f, layout[1], app);
+    render_list(f, layout[0], app, &entries);
+    render_detail(f, layout[1], app, &entries);
 }
 
-fn render_list(f: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app
-        .snap
-        .webhook_log
+fn render_list(f: &mut Frame, area: Rect, app: &App, entries: &[&WebhookLogEntry]) {
+    let t = app.theme;
+    let items: Vec<ListItem> = entries
         .iter()
         .enumerate()
         .map(|(i, e)| {
             let selected = i == app.audit_cursor;
             let arrow = if selected { "▶ " } else { "  " };
-            let (disp_color, disp_label) = disposition_style(&e.disposition);
+            let (disp_color, disp_label) = disposition_style(&e.disposition, t);
 
             let header = Line::from(vec![
-                Span::styled(arrow, Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+                Span::styled(arrow, Style::default().fg(t.primary).add_modifier(Modifier::BOLD)),
                 Span::styled(
                     format!("{:<10}", disp_label),
                     Style::default().fg(disp_color).add_modifier(Modifier::BOLD),
@@ -41,11 +42,11 @@ fn render_list(f: &mut Frame, area: Rect, app: &App) {
                 Span::raw(" "),
                 Span::styled(
                     format!("{:<30}", e.event_type),
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                    Style::default().fg(t.text).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     e.action.clone().unwrap_or_else(|| "-".into()),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(t.muted),
                 ),
             ]);
 
@@ -58,19 +59,19 @@ fn render_list(f: &mut Frame, area: Rect, app: &App) {
                 Span::raw("    "),
                 Span::styled(
                     e.actor.clone().unwrap_or_else(|| "-".into()),
-                    Style::default().fg(Color::Cyan),
+                    Style::default().fg(t.accent),
                 ),
                 Span::raw("  "),
-                Span::styled(repo_pr, Style::default().fg(Color::Gray)),
+                Span::styled(repo_pr, Style::default().fg(t.muted)),
                 Span::raw("  "),
                 Span::styled(
                     relative_time(&e.received_at),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(t.muted),
                 ),
             ]);
 
             let style = if selected {
-                Style::default().bg(Color::Rgb(40, 40, 60))
+                Style::default().bg(t.highlight_bg)
             } else {
                 Style::default()
             };
@@ -78,23 +79,37 @@ fn render_list(f: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
+    let hidden_count = app.snap.webhook_log.len().saturating_sub(entries.len());
+    let title = if app.audit_show_all {
+        format!(" webhook audit  ·  showing all {} ", app.snap.webhook_log.len())
+    } else if hidden_count > 0 {
+        format!(
+            " webhook audit  ·  {} interesting · {} hidden (press a) ",
+            entries.len(),
+            hidden_count
+        )
+    } else {
+        format!(" webhook audit  ·  {} ", entries.len())
+    };
+
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.border))
         .title(Span::styled(
-            " webhook audit ",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            title,
+            Style::default().fg(t.warning).add_modifier(Modifier::BOLD),
         ))
         .padding(Padding::horizontal(1));
     f.render_widget(List::new(items).block(block), area);
 }
 
-fn render_detail(f: &mut Frame, area: Rect, app: &App) {
-    let Some(e) = app.snap.webhook_log.get(app.audit_cursor) else {
+fn render_detail(f: &mut Frame, area: Rect, app: &App, entries: &[&WebhookLogEntry]) {
+    let t = app.theme;
+    let Some(e) = entries.get(app.audit_cursor) else {
         return;
     };
 
-    let (disp_color, disp_label) = disposition_style(&e.disposition);
+    let (disp_color, disp_label) = disposition_style(&e.disposition, t);
 
     let lines = vec![
         Line::from(vec![
@@ -104,83 +119,125 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App) {
             ),
             Span::styled(
                 e.event_type.clone(),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default().fg(t.text).add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
             Span::styled(
                 e.action.clone().unwrap_or_else(|| "-".into()),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.muted),
             ),
         ]),
         Line::raw(""),
-        kv("reason  ", e.reason.as_deref().unwrap_or("-")),
+        kv("reason  ", e.reason.as_deref().unwrap_or("-"), t),
         kv(
             "repo    ",
             &e.repo.clone().unwrap_or_else(|| "-".into()),
+            t,
         ),
         kv(
             "PR      ",
             &e.pr_number.map(|n| format!("#{n}")).unwrap_or_else(|| "-".into()),
+            t,
         ),
         kv(
             "actor   ",
             &e.actor.clone().unwrap_or_else(|| "-".into()),
+            t,
         ),
-        kv("received", &relative_time(&e.received_at)),
-        kv("at      ", &e.received_at),
+        kv("received", &relative_time(&e.received_at), t),
+        kv("at      ", &e.received_at, t),
         kv(
             "delivery",
             &e.delivery_id.clone().unwrap_or_else(|| "-".into()),
+            t,
         ),
         Line::raw(""),
-        Line::styled(explainer(&e.disposition, e.reason.as_deref()), Style::default().fg(Color::DarkGray)),
+        Line::styled(
+            explainer(&e.disposition, e.reason.as_deref()),
+            Style::default().fg(t.muted),
+        ),
     ];
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.border))
         .title(Span::styled(
             " detail ",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(t.warning),
         ))
         .padding(Padding::new(2, 2, 1, 1));
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
-fn render_empty(f: &mut Frame, area: Rect) {
-    let msg = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  No webhooks received yet.",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Every incoming webhook — dispatched, notified, or dropped — will appear here with a reason.",
-            Style::default().fg(Color::DarkGray),
-        )),
-    ];
+fn render_empty(f: &mut Frame, area: Rect, app: &App) {
+    let t = app.theme;
+    let total = app.snap.webhook_log.len();
+    let has_query = !app.filter_query.is_empty();
+
+    let msg = if total == 0 {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  No webhooks received yet.",
+                Style::default().fg(t.muted),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Every incoming webhook — dispatched, notified, or dropped — will appear here with a reason.",
+                Style::default().fg(t.muted),
+            )),
+        ]
+    } else if has_query {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  No entries match filter \"{}\".", app.filter_query),
+                Style::default().fg(t.muted),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press Esc to clear, or [a] to include hidden noise.",
+                Style::default().fg(t.muted),
+            )),
+        ]
+    } else {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Inbox zero on the interesting stuff — ", Style::default().fg(t.success)),
+                Span::styled(
+                    format!("{total} webhook(s) hidden by the default filter."),
+                    Style::default().fg(t.muted),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press [a] to show all.",
+                Style::default().fg(t.muted),
+            )),
+        ]
+    };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.border))
         .title(" webhook audit ");
     f.render_widget(Paragraph::new(msg).wrap(Wrap { trim: true }).block(block), area);
 }
 
-fn disposition_style(d: &str) -> (Color, &'static str) {
+fn disposition_style(d: &str, t: Theme) -> (Color, &'static str) {
     match d {
-        "dispatched" => (Color::Green, "DISPATCHED"),
-        "notified" => (Color::Yellow, "NOTIFIED  "),
-        "dropped" => (Color::Red, "DROPPED   "),
-        "auto_closed" => (Color::Blue, "AUTO-CLOSE"),
-        _ => (Color::White, "?         "),
+        "dispatched" => (t.success, "DISPATCHED"),
+        "notified" => (t.warning, "NOTIFIED  "),
+        "dropped" => (t.error, "DROPPED   "),
+        "auto_closed" => (t.info, "AUTO-CLOSE"),
+        _ => (t.text, "?         "),
     }
 }
 
-fn kv<'a>(label: &'a str, value: &str) -> Line<'a> {
+fn kv<'a>(label: &'a str, value: &str, t: Theme) -> Line<'a> {
     Line::from(vec![
-        Span::styled(format!("{label}  "), Style::default().fg(Color::DarkGray)),
-        Span::styled(value.to_string(), Style::default().fg(Color::White)),
+        Span::styled(format!("{label}  "), Style::default().fg(t.muted)),
+        Span::styled(value.to_string(), Style::default().fg(t.text)),
     ])
 }
 

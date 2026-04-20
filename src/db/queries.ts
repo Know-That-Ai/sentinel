@@ -37,7 +37,7 @@ export function getUnreviewedEvents(): EventRow[] {
 export function getUnreviewedScannerEvents(repo: string, prNumber: number): EventRow[] {
   const db = getDB()
   return db.prepare(
-    "SELECT * FROM events WHERE repo = ? AND pr_number = ? AND reviewed = 0 AND source IN ('bugbot', 'codeql')"
+    "SELECT * FROM events WHERE repo = ? COLLATE NOCASE AND pr_number = ? AND reviewed = 0 AND source IN ('bugbot', 'codeql')"
   ).all(repo, prNumber) as EventRow[]
 }
 
@@ -66,7 +66,7 @@ export function markScannerEventsAutoClosed(
   const result = db.prepare(
     `UPDATE events
      SET reviewed = 1, auto_closed_at = ?, auto_close_reason = ?
-     WHERE repo = ? AND pr_number = ? AND actor = ? AND reviewed = 0`
+     WHERE repo = ? COLLATE NOCASE AND pr_number = ? AND actor = ? AND reviewed = 0`
   ).run(new Date().toISOString(), reason, repo, prNumber, actor)
   return result.changes
 }
@@ -106,7 +106,7 @@ export function upsertPRHealth(params: PRHealthParams): void {
 
 export function getPRHealth(repo: string, prNumber: number): PRHealthRow[] {
   const db = getDB()
-  return db.prepare('SELECT * FROM pr_health WHERE repo = ? AND pr_number = ?')
+  return db.prepare('SELECT * FROM pr_health WHERE repo = ? COLLATE NOCASE AND pr_number = ?')
     .all(repo, prNumber) as PRHealthRow[]
 }
 
@@ -137,7 +137,10 @@ export function insertLinkedSession(params: InsertLinkedSessionParams): void {
 
 export function getLinkedSession(repo: string, prNumber: number): LinkedSessionRow | null {
   const db = getDB()
-  return db.prepare('SELECT * FROM linked_sessions WHERE repo = ? AND pr_number = ?')
+  // COLLATE NOCASE so a session linked from a git remote with non-canonical
+  // casing (e.g. `know-that-ai/sentinel`) still matches webhooks that always
+  // arrive with GitHub's canonical casing (`Know-That-Ai/sentinel`).
+  return db.prepare('SELECT * FROM linked_sessions WHERE repo = ? COLLATE NOCASE AND pr_number = ?')
     .get(repo, prNumber) as LinkedSessionRow | undefined ?? null
 }
 
@@ -149,7 +152,7 @@ export function getActiveLinkedSessions(): LinkedSessionRow[] {
 
 export function unlinkSession(repo: string, prNumber: number, reason: string): void {
   const db = getDB()
-  db.prepare('UPDATE linked_sessions SET unlinked_at = ?, unlink_reason = ? WHERE repo = ? AND pr_number = ?')
+  db.prepare('UPDATE linked_sessions SET unlinked_at = ?, unlink_reason = ? WHERE repo = ? COLLATE NOCASE AND pr_number = ?')
     .run(new Date().toISOString(), reason, repo, prNumber)
 }
 
