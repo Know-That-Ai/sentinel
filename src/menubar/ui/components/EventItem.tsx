@@ -6,6 +6,7 @@ interface EventRow {
   pr_number: number
   pr_title: string
   pr_url: string
+  pr_author: string
   event_type: string
   source: string
   actor: string
@@ -43,18 +44,29 @@ function truncate(text: string, maxLen: number): string {
 }
 
 export function EventItem({ event, isLinked, isDispatching, onOpen, onReview, onDispatch }: EventItemProps) {
+  const author = event.pr_author
   return (
-    <div className="event-row">
+    <div className={`event-row ${isLinked ? '' : 'unlinked'}`}>
       <span className="event-arrow">{'\u21B3'}</span>
       <span className={`event-label ${sourceLabelClass(event.source, event.event_type)}`}>
         {sourceLabel(event.source, event.event_type)}
       </span>
       <span className="event-info">
         <span className="event-pr">PR #{event.pr_number}</span>
+        {author && (
+          <>
+            {' \u00B7 '}
+            <span className="event-author">@{author}</span>
+          </>
+        )}
         {' \u00B7 '}
-        {truncate(event.pr_title, 28)}
+        {truncate(event.pr_title, 24)}
       </span>
-      {isLinked && <span className="linked-indicator">{'\uD83D\uDD17'}</span>}
+      {isLinked ? (
+        <span className="linked-indicator" title="Linked to a Claude session">{'\uD83D\uDD17'}</span>
+      ) : (
+        <span className="unlinked-indicator" title="No linked Claude session — notify-only">{'\u25CB'}</span>
+      )}
       <div className="event-actions">
         <button
           className="action-btn"

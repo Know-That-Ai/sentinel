@@ -7,6 +7,7 @@ interface EventRow {
   pr_number: number
   pr_title: string
   pr_url: string
+  pr_author: string
   event_type: string
   source: string
   actor: string

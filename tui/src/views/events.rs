@@ -32,8 +32,9 @@ fn render_list(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
             let selected = i == app.events_cursor;
             let arrow = if selected { "▶ " } else { "  " };
             let src_color = source_color(&e.source, t);
+            let linked = find_linked_session(app, e).is_some();
 
-            let header = Line::from(vec![
+            let mut header_spans = vec![
                 Span::styled(
                     arrow,
                     Style::default().fg(t.primary).add_modifier(Modifier::BOLD),
@@ -49,10 +50,23 @@ fn render_list(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
                 ),
                 Span::raw("  "),
                 Span::styled(
+                    format!("@{}", e.pr_author),
+                    Style::default().fg(t.accent),
+                ),
+                Span::raw("  "),
+                Span::styled(
                     relative_time(&e.received_at),
                     Style::default().fg(t.muted),
                 ),
-            ]);
+            ];
+            if !linked {
+                header_spans.push(Span::raw("  "));
+                header_spans.push(Span::styled(
+                    "[unlinked]",
+                    Style::default().fg(t.warning),
+                ));
+            }
+            let header = Line::from(header_spans);
 
             let body = e
                 .body
@@ -71,6 +85,8 @@ fn render_list(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
 
             let style = if selected {
                 Style::default().bg(t.highlight_bg)
+            } else if !linked {
+                Style::default().add_modifier(Modifier::DIM)
             } else {
                 Style::default()
             };
