@@ -34,7 +34,11 @@ async function cmdLink(): Promise<void> {
 
   const prFlag = parseFlag('--pr')
   const repoFlag = parseFlag('--repo')
+  const silent = args.includes('--silent')
   const cwd = process.cwd()
+
+  const log = (...a: any[]) => { if (!silent) console.log(...a) }
+  const bail = (msg: string) => { if (!silent) console.error(msg); process.exit(silent ? 0 : 1) }
 
   let repo: string
   let prNumber: number
@@ -43,11 +47,17 @@ async function cmdLink(): Promise<void> {
     repo = repoFlag
     prNumber = parseInt(prFlag, 10)
   } else {
-    const octokit = getOctokit()
+    let octokit: any
+    try {
+      octokit = getOctokit()
+    } catch {
+      bail('Missing GITHUB_PAT — set it in .env')
+      return
+    }
     const resolved = await resolveBranchToPR(cwd, octokit)
     if (!resolved) {
-      console.error('No open PR found for the current branch.')
-      process.exit(1)
+      bail('No open PR found for the current branch.')
+      return
     }
     repo = resolved.repo
     prNumber = resolved.prNumber
@@ -56,7 +66,7 @@ async function cmdLink(): Promise<void> {
   // Check for existing active link
   const existing = queries.getLinkedSession(repo, prNumber)
   if (existing && !existing.unlinked_at) {
-    console.log(`Already linked: ${repo}#${prNumber} (session ${existing.id})`)
+    log(`Already linked: ${repo}#${prNumber} (session ${existing.id})`)
     return
   }
 
@@ -75,7 +85,7 @@ async function cmdLink(): Promise<void> {
     linkedAt: new Date().toISOString(),
   })
 
-  console.log(`Linked: ${repo}#${prNumber} (session ${sessionId}, pid ${terminalPid ?? '-'}, tty ${tty ?? '-'})`)
+  log(`Linked: ${repo}#${prNumber} (session ${sessionId}, pid ${terminalPid ?? '-'}, tty ${tty ?? '-'})`)
 }
 
 function resolveTerminalContext(): { pid: number | null; tty: string | null } {

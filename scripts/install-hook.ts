@@ -2,13 +2,17 @@ import * as fs from 'fs'
 import * as path from 'path'
 import os from 'os'
 
+// Bumped when the hook command changes — installHook replaces stale versions.
+const SENTINEL_HOOK_VERSION = '2'
+
 const SENTINEL_HOOK_ENTRY = {
   matcher: 'Bash',
+  // sentinel-hook-version: 2
   hooks: [
     {
       type: 'command',
       command:
-        'if echo "$CLAUDE_TOOL_OUTPUT" | grep -qE \'github\\.com/.+/pull/[0-9]+\'; then cd "$CLAUDE_TOOL_CWD" && sentinel link; fi',
+        'if echo "$CLAUDE_TOOL_OUTPUT" | grep -qE \'github\\.com/.+/pull/[0-9]+\'; then cd "$CLAUDE_TOOL_CWD" && sentinel link --silent; elif echo "$CLAUDE_TOOL_INPUT" | grep -qE \'git push\'; then cd "$CLAUDE_TOOL_CWD" && sentinel link --silent; fi',
     },
   ],
 }
@@ -39,22 +43,26 @@ function writeSettings(settingsPath: string, settings: Record<string, any>): voi
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
 }
 
+function isCurrentVersion(entry: any): boolean {
+  return entry?.hooks?.some(
+    (h: any) => typeof h.command === 'string' && h.command.includes(`sentinel link --silent`)
+  ) ?? false
+}
+
 export async function installHook(settingsPath?: string): Promise<void> {
   const target = settingsPath ?? defaultSettingsPath()
   const settings = readSettings(target)
 
-  if (!settings.hooks) {
-    settings.hooks = {}
-  }
-  if (!Array.isArray(settings.hooks.PostToolUse)) {
-    settings.hooks.PostToolUse = []
-  }
+  if (!settings.hooks) settings.hooks = {}
+  if (!Array.isArray(settings.hooks.PostToolUse)) settings.hooks.PostToolUse = []
 
-  const alreadyInstalled = settings.hooks.PostToolUse.some(isSentinelHook)
-  if (alreadyInstalled) {
-    return
-  }
+  const existing = settings.hooks.PostToolUse.find(isSentinelHook)
+  if (existing && isCurrentVersion(existing)) return
 
+  // Remove stale sentinel hook (if any) and install current version
+  settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+    (e: any) => !isSentinelHook(e)
+  )
   settings.hooks.PostToolUse.push(SENTINEL_HOOK_ENTRY)
   writeSettings(target, settings)
 }
