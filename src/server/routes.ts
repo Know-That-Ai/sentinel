@@ -47,7 +47,9 @@ healthRouter.get('/state/sessions', (_req, res) => {
     const anyFailure = checks.some(
       (c) => c.last_conclusion === 'failure' || c.last_conclusion === 'timed_out'
     )
-    const anyInProgress = checks.some((c) => c.status === 'in_progress')
+    const anyInProgress = checks.some(
+      (c) => c.status === 'in_progress' || c.status === 'queued'
+    )
 
     // Precedence: merged > in_progress > failure > openEvents > green > unknown
     let pr_status: 'green' | 'red' | 'pending' | 'unknown' | 'merged'
