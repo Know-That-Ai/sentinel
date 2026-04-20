@@ -1,9 +1,14 @@
+use crate::api::WebhookLogEntry;
 use crate::app::App;
+use chrono::{DateTime, Utc};
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Padding, Paragraph, Wrap},
+    widgets::{Block, Borders, Padding, Paragraph, Sparkline, Wrap},
 };
 use std::time::Instant;
+
+const BUCKET_COUNT: usize = 12;
+const BUCKET_MINUTES: i64 = 5;
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let layout = Layout::default()
@@ -12,7 +17,14 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         .split(area);
 
     render_service(f, layout[0], app);
-    render_summary(f, layout[1], app);
+
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(11), Constraint::Min(5)])
+        .split(layout[1]);
+
+    render_summary(f, right[0], app);
+    render_activity(f, right[1], app);
 }
 
 fn render_service(f: &mut Frame, area: Rect, app: &App) {
@@ -47,16 +59,10 @@ fn render_service(f: &mut Frame, area: Rect, app: &App) {
         lines.push(kv("Agent", &cfg.preferred_agent));
     }
 
-    lines.push(kv(
-        "TUI uptime",
-        &format_uptime(app.started_at.elapsed()),
-    ));
+    lines.push(kv("TUI uptime", &format_uptime(app.started_at.elapsed())));
     lines.push(kv(
         "Last poll",
-        &format!(
-            "{:.1}s ago",
-            app.snap.fetched_at.elapsed().as_secs_f32()
-        ),
+        &format!("{:.1}s ago", app.snap.fetched_at.elapsed().as_secs_f32()),
     ));
 
     let block = Block::default()
@@ -107,6 +113,86 @@ fn render_summary(f: &mut Frame, area: Rect, app: &App) {
         .padding(Padding::new(3, 2, 1, 1));
     let p = Paragraph::new(lines).block(block);
     f.render_widget(p, area);
+}
+
+fn render_activity(f: &mut Frame, area: Rect, app: &App) {
+    let buckets = bucket_webhook_activity(&app.snap.webhook_log);
+    let total: u64 = buckets.iter().sum();
+    let peak = buckets.iter().copied().max().unwrap_or(0);
+
+    let title = format!(
+        " last 60 min  ·  {total} webhooks  ·  peak {peak}/5-min ",
+    );
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Span::styled(
+            title,
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+        ))
+        .padding(Padding::new(2, 2, 1, 1));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if buckets.iter().all(|&n| n == 0) {
+        let msg = Paragraph::new(Line::from(Span::styled(
+            "no activity in the last hour",
+            Style::default().fg(Color::DarkGray),
+        )));
+        f.render_widget(msg, inner);
+        return;
+    }
+
+    // Layout: sparkline on top, axis label row below.
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let sparkline = Sparkline::default()
+        .data(&buckets)
+        .style(Style::default().fg(Color::Cyan))
+        .max(peak.max(1));
+    f.render_widget(sparkline, rows[0]);
+
+    // X-axis: "-60m" on the left, "now" on the right.
+    let axis = Line::from(vec![
+        Span::styled("-60m", Style::default().fg(Color::DarkGray)),
+        Span::raw("  "),
+        Span::styled(
+            "←  5-minute buckets  →",
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            "now",
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+        ),
+    ])
+    .alignment(Alignment::Center);
+    f.render_widget(Paragraph::new(axis), rows[1]);
+}
+
+fn bucket_webhook_activity(log: &[WebhookLogEntry]) -> Vec<u64> {
+    let now = Utc::now();
+    let mut buckets = vec![0u64; BUCKET_COUNT];
+    for entry in log {
+        let Ok(ts) = DateTime::parse_from_rfc3339(&entry.received_at) else {
+            continue;
+        };
+        let ts = ts.with_timezone(&Utc);
+        let minutes_ago = (now - ts).num_minutes();
+        if !(0..(BUCKET_COUNT as i64 * BUCKET_MINUTES)).contains(&minutes_ago) {
+            continue;
+        }
+        // bucket[0] = oldest (55-60m ago); bucket[11] = newest (0-5m ago)
+        let bucket_from_end = (minutes_ago / BUCKET_MINUTES) as usize;
+        let idx = BUCKET_COUNT - 1 - bucket_from_end.min(BUCKET_COUNT - 1);
+        buckets[idx] = buckets[idx].saturating_add(1);
+    }
+    buckets
 }
 
 fn daemon_status_text(app: &App) -> String {

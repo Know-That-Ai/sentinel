@@ -7,8 +7,9 @@ use ratatui::{
 };
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
-    if app.snap.events.is_empty() {
-        render_empty(f, area);
+    let events = app.filtered_events();
+    if events.is_empty() {
+        render_empty(f, area, app);
         return;
     }
 
@@ -17,14 +18,12 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(area);
 
-    render_list(f, layout[0], app);
-    render_detail(f, layout[1], app);
+    render_list(f, layout[0], app, &events);
+    render_detail(f, layout[1], app, &events);
 }
 
-fn render_list(f: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app
-        .snap
-        .events
+fn render_list(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
+    let items: Vec<ListItem> = events
         .iter()
         .enumerate()
         .map(|(i, e)| {
@@ -90,8 +89,8 @@ fn render_list(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(list, area);
 }
 
-fn render_detail(f: &mut Frame, area: Rect, app: &App) {
-    let Some(ev) = app.selected_event() else {
+fn render_detail(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
+    let Some(ev) = events.get(app.events_cursor).copied() else {
         return;
     };
 
@@ -168,19 +167,36 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
-fn render_empty(f: &mut Frame, area: Rect) {
-    let msg = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Inbox zero 🎉 — no unreviewed events.",
-            Style::default().fg(Color::Green),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  New scanner comments will show up here.",
-            Style::default().fg(Color::DarkGray),
-        )),
-    ];
+fn render_empty(f: &mut Frame, area: Rect, app: &App) {
+    let has_query = !app.filter_query.is_empty();
+    let total = app.snap.events.len();
+    let msg = if has_query && total > 0 {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  No events match filter \"{}\".", app.filter_query),
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press Esc to clear.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]
+    } else {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Inbox zero 🎉 — no unreviewed events.",
+                Style::default().fg(Color::Green),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  New scanner comments will show up here.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
@@ -192,7 +208,11 @@ fn find_linked_session<'a>(app: &'a App, ev: &Event) -> Option<&'a Session> {
     app.snap
         .sessions
         .iter()
-        .find(|s| s.repo == ev.repo && s.pr_number == ev.pr_number && s.unlinked_at.is_none())
+        .find(|s| {
+            s.repo.eq_ignore_ascii_case(&ev.repo)
+                && s.pr_number == ev.pr_number
+                && s.unlinked_at.is_none()
+        })
 }
 
 fn source_color(source: &str) -> Color {

@@ -82,6 +82,17 @@ pub struct App {
     pub events_cursor: usize,
     pub audit_cursor: usize,
     pub audit_show_all: bool,
+    /// Current filter query (case-insensitive substring match). Applies to
+    /// whichever list tab the user is on. Empty string = no filter.
+    pub filter_query: String,
+    /// True while the user is typing into the filter bar.
+    pub filter_mode: bool,
+    /// True while the help overlay is visible.
+    pub help_visible: bool,
+    /// Counts the user has "seen" for each tab — used to compute the
+    /// delta badge on tabs they aren't currently looking at.
+    pub seen_events_count: usize,
+    pub seen_audit_count: usize,
     pub flash: Option<(String, Instant)>,
     pub quitting: bool,
     pub started_at: Instant,
@@ -103,6 +114,11 @@ impl App {
             events_cursor: 0,
             audit_cursor: 0,
             audit_show_all: false,
+            filter_query: String::new(),
+            filter_mode: false,
+            help_visible: false,
+            seen_events_count: 0,
+            seen_audit_count: 0,
             flash: None,
             quitting: false,
             started_at: Instant::now(),
@@ -136,21 +152,61 @@ impl App {
     }
 
     pub fn selected_event(&self) -> Option<&Event> {
-        self.snap.events.get(self.events_cursor)
+        self.filtered_events().into_iter().nth(self.events_cursor)
     }
 
-    /// Audit entries after applying the current filter. When `audit_show_all`
-    /// is false, hide entries that are usually noise: github-actions and
-    /// vercel check_runs, pings, pr synchronize/edited actions that don't
-    /// match a scanner.
+    pub fn selected_session(&self) -> Option<&Session> {
+        self.filtered_sessions().into_iter().nth(self.sessions_cursor)
+    }
+
+    pub fn filtered_sessions(&self) -> Vec<&Session> {
+        let q = self.filter_query.trim().to_lowercase();
+        self.snap
+            .sessions
+            .iter()
+            .filter(|s| {
+                if q.is_empty() {
+                    return true;
+                }
+                s.repo.to_lowercase().contains(&q)
+                    || s.agent_type.to_lowercase().contains(&q)
+                    || s.repo_path.to_lowercase().contains(&q)
+                    || s.pr_number.to_string().contains(&q)
+            })
+            .collect()
+    }
+
+    pub fn filtered_events(&self) -> Vec<&Event> {
+        let q = self.filter_query.trim().to_lowercase();
+        self.snap
+            .events
+            .iter()
+            .filter(|e| {
+                if q.is_empty() {
+                    return true;
+                }
+                e.repo.to_lowercase().contains(&q)
+                    || e.actor.to_lowercase().contains(&q)
+                    || e.source.to_lowercase().contains(&q)
+                    || e.pr_title.to_lowercase().contains(&q)
+                    || e.pr_number.to_string().contains(&q)
+                    || e.body
+                        .as_deref()
+                        .map(|b| b.to_lowercase().contains(&q))
+                        .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    /// Audit entries after applying both the noise filter AND the query.
+    /// When `audit_show_all` is false, hide entries that are usually noise.
     pub fn audit_entries(&self) -> Vec<&WebhookLogEntry> {
-        if self.audit_show_all {
-            return self.snap.webhook_log.iter().collect();
-        }
+        let q = self.filter_query.trim().to_lowercase();
         self.snap
             .webhook_log
             .iter()
-            .filter(|e| is_interesting(e))
+            .filter(|e| self.audit_show_all || is_interesting(e))
+            .filter(|e| q.is_empty() || matches_audit_query(e, &q))
             .collect()
     }
 
@@ -158,8 +214,40 @@ impl App {
         self.audit_entries().into_iter().nth(self.audit_cursor)
     }
 
-    pub fn selected_session(&self) -> Option<&Session> {
-        self.snap.sessions.get(self.sessions_cursor)
+    /// Badge count for a tab — number of "new" items since the user last
+    /// viewed that tab. Only Events and Audit surface badges.
+    pub fn badge_for(&self, tab: Tab) -> Option<usize> {
+        if tab == self.tab {
+            return None;
+        }
+        let (current, seen) = match tab {
+            Tab::Events => (self.snap.events.len(), self.seen_events_count),
+            Tab::Audit => (self.snap.webhook_log.len(), self.seen_audit_count),
+            _ => return None,
+        };
+        let delta = current.saturating_sub(seen);
+        if delta == 0 {
+            None
+        } else {
+            Some(delta)
+        }
+    }
+
+    /// Snapshot current counts as "seen" so the badge clears.
+    pub fn mark_tab_seen(&mut self, tab: Tab) {
+        match tab {
+            Tab::Events => self.seen_events_count = self.snap.events.len(),
+            Tab::Audit => self.seen_audit_count = self.snap.webhook_log.len(),
+            _ => {}
+        }
+    }
+
+    pub fn switch_tab(&mut self, tab: Tab) {
+        self.tab = tab;
+        self.mark_tab_seen(tab);
+        self.sessions_cursor = 0;
+        self.events_cursor = 0;
+        self.audit_cursor = 0;
     }
 
     pub fn mark_reviewed_selected(&mut self) -> Result<()> {
@@ -181,10 +269,17 @@ impl App {
     }
 
     pub fn move_cursor(&mut self, delta: isize) {
-        let (len, cursor) = match self.tab {
-            Tab::Sessions => (self.snap.sessions.len(), &mut self.sessions_cursor),
-            Tab::Events => (self.snap.events.len(), &mut self.events_cursor),
-            Tab::Audit => (self.audit_entries().len(), &mut self.audit_cursor),
+        // Resolve filtered length before taking a mutable borrow of the cursor.
+        let len = match self.tab {
+            Tab::Sessions => self.filtered_sessions().len(),
+            Tab::Events => self.filtered_events().len(),
+            Tab::Audit => self.audit_entries().len(),
+            _ => return,
+        };
+        let cursor = match self.tab {
+            Tab::Sessions => &mut self.sessions_cursor,
+            Tab::Events => &mut self.events_cursor,
+            Tab::Audit => &mut self.audit_cursor,
             _ => return,
         };
         if len == 0 {
@@ -194,6 +289,56 @@ impl App {
         let new = (*cursor as isize + delta).rem_euclid(len as isize);
         *cursor = new as usize;
     }
+
+    /// Enter the filter input mode. Safe to call while already in filter mode.
+    pub fn filter_begin(&mut self) {
+        self.filter_mode = true;
+    }
+
+    /// Exit filter input mode without clearing the query.
+    pub fn filter_commit(&mut self) {
+        self.filter_mode = false;
+    }
+
+    /// Clear the query AND exit input mode.
+    pub fn filter_cancel(&mut self) {
+        self.filter_query.clear();
+        self.filter_mode = false;
+        self.sessions_cursor = 0;
+        self.events_cursor = 0;
+        self.audit_cursor = 0;
+    }
+
+    pub fn filter_push(&mut self, c: char) {
+        self.filter_query.push(c);
+        self.sessions_cursor = 0;
+        self.events_cursor = 0;
+        self.audit_cursor = 0;
+    }
+
+    pub fn filter_pop(&mut self) {
+        self.filter_query.pop();
+        self.sessions_cursor = 0;
+        self.events_cursor = 0;
+        self.audit_cursor = 0;
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.help_visible = !self.help_visible;
+    }
+}
+
+fn matches_audit_query(e: &WebhookLogEntry, q: &str) -> bool {
+    let fields = [
+        e.event_type.to_lowercase(),
+        e.action.as_deref().unwrap_or("").to_lowercase(),
+        e.repo.as_deref().unwrap_or("").to_lowercase(),
+        e.actor.as_deref().unwrap_or("").to_lowercase(),
+        e.reason.as_deref().unwrap_or("").to_lowercase(),
+        e.disposition.to_lowercase(),
+        e.pr_number.map(|n| n.to_string()).unwrap_or_default(),
+    ];
+    fields.iter().any(|s| s.contains(q))
 }
 
 fn is_interesting(e: &WebhookLogEntry) -> bool {

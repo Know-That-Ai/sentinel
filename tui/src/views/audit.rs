@@ -161,6 +161,8 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App, entries: &[&WebhookLogEnt
 
 fn render_empty(f: &mut Frame, area: Rect, app: &App) {
     let total = app.snap.webhook_log.len();
+    let has_query = !app.filter_query.is_empty();
+
     let msg = if total == 0 {
         vec![
             Line::from(""),
@@ -171,6 +173,19 @@ fn render_empty(f: &mut Frame, area: Rect, app: &App) {
             Line::from(""),
             Line::from(Span::styled(
                 "  Every incoming webhook — dispatched, notified, or dropped — will appear here with a reason.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]
+    } else if has_query {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  No entries match filter \"{}\".", app.filter_query),
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press Esc to clear, or [a] to include hidden noise.",
                 Style::default().fg(Color::DarkGray),
             )),
         ]

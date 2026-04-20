@@ -6,8 +6,9 @@ use ratatui::{
 };
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
-    if app.snap.sessions.is_empty() {
-        render_empty(f, area);
+    let sessions = app.filtered_sessions();
+    if sessions.is_empty() {
+        render_empty(f, area, app);
         return;
     }
 
@@ -16,11 +17,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         .constraints([Constraint::Min(5), Constraint::Length(7)])
         .split(area);
 
-    render_table(f, layout[0], app);
-    render_detail(f, layout[1], app);
+    render_table(f, layout[0], app, &sessions);
+    render_detail(f, layout[1], app, &sessions);
 }
 
-fn render_table(f: &mut Frame, area: Rect, app: &App) {
+fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::Session]) {
     let header = Row::new(vec![
         hdr("REPO"),
         hdr("PR"),
@@ -30,9 +31,7 @@ fn render_table(f: &mut Frame, area: Rect, app: &App) {
     ])
     .height(1);
 
-    let rows: Vec<Row> = app
-        .snap
-        .sessions
+    let rows: Vec<Row> = sessions
         .iter()
         .enumerate()
         .map(|(i, s)| {
@@ -78,8 +77,8 @@ fn render_table(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(table, area);
 }
 
-fn render_detail(f: &mut Frame, area: Rect, app: &App) {
-    let Some(s) = app.selected_session() else {
+fn render_detail(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::Session]) {
+    let Some(s) = sessions.get(app.sessions_cursor) else {
         return;
     };
     let lines = vec![
@@ -99,26 +98,43 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn render_empty(f: &mut Frame, area: Rect) {
-    let msg = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  No linked sessions yet.",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("  From any repo with an open PR, run  "),
-            Span::styled(
-                "`sentinel link`",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-        ]),
-        Line::from(Span::styled(
-            "  or let the Claude Code PostToolUse hook auto-link.",
-            Style::default().fg(Color::DarkGray),
-        )),
-    ];
+fn render_empty(f: &mut Frame, area: Rect, app: &App) {
+    let has_query = !app.filter_query.is_empty();
+    let total = app.snap.sessions.len();
+    let msg = if has_query && total > 0 {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  No sessions match filter \"{}\".", app.filter_query),
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press Esc to clear.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]
+    } else {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  No linked sessions yet.",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(vec![
+                Span::raw("  From any repo with an open PR, run  "),
+                Span::styled(
+                    "`sentinel link`",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(Span::styled(
+                "  or let the Claude Code PostToolUse hook auto-link.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))

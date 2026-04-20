@@ -58,22 +58,66 @@ fn run<B: Backend>(term: &mut Terminal<B>, app: &mut App) -> Result<()> {
 }
 
 fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> {
+    // Modal: filter input captures all keys except Esc / Enter / Backspace.
+    if app.filter_mode {
+        match code {
+            KeyCode::Esc => app.filter_cancel(),
+            KeyCode::Enter => app.filter_commit(),
+            KeyCode::Backspace => app.filter_pop(),
+            KeyCode::Char(c) if mods == KeyModifiers::NONE || mods == KeyModifiers::SHIFT => {
+                app.filter_push(c);
+            }
+            _ => {}
+        }
+        return Ok(false);
+    }
+
+    // Modal: help overlay absorbs any key to dismiss.
+    if app.help_visible {
+        match (code, mods) {
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                app.quitting = true;
+                return Ok(true);
+            }
+            _ => app.help_visible = false,
+        }
+        return Ok(false);
+    }
+
     match (code, mods) {
-        (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => {
+        (KeyCode::Char('q'), _) => {
             app.quitting = true;
             return Ok(true);
+        }
+        (KeyCode::Esc, _) => {
+            // Esc at top level clears a stale filter query first; only
+            // quits if there's nothing left to clear.
+            if !app.filter_query.is_empty() {
+                app.filter_cancel();
+            } else {
+                app.quitting = true;
+                return Ok(true);
+            }
         }
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
             app.quitting = true;
             return Ok(true);
         }
-        (KeyCode::Tab, _) | (KeyCode::Char('l'), _) => app.tab = app.tab.next(),
-        (KeyCode::BackTab, _) | (KeyCode::Char('h'), _) => app.tab = app.tab.prev(),
-        (KeyCode::Char('1'), _) => app.tab = Tab::Dashboard,
-        (KeyCode::Char('2'), _) => app.tab = Tab::Sessions,
-        (KeyCode::Char('3'), _) => app.tab = Tab::Events,
-        (KeyCode::Char('4'), _) => app.tab = Tab::Audit,
-        (KeyCode::Char('5'), _) => app.tab = Tab::Config,
+        (KeyCode::Char('?'), _) => app.toggle_help(),
+        (KeyCode::Char('/'), _) => app.filter_begin(),
+        (KeyCode::Tab, _) | (KeyCode::Char('l'), _) => {
+            let next = app.tab.next();
+            app.switch_tab(next);
+        }
+        (KeyCode::BackTab, _) | (KeyCode::Char('h'), _) => {
+            let prev = app.tab.prev();
+            app.switch_tab(prev);
+        }
+        (KeyCode::Char('1'), _) => app.switch_tab(Tab::Dashboard),
+        (KeyCode::Char('2'), _) => app.switch_tab(Tab::Sessions),
+        (KeyCode::Char('3'), _) => app.switch_tab(Tab::Events),
+        (KeyCode::Char('4'), _) => app.switch_tab(Tab::Audit),
+        (KeyCode::Char('5'), _) => app.switch_tab(Tab::Config),
         (KeyCode::Char('r'), _) => {
             if app.tab == Tab::Events {
                 if let Err(e) = app.mark_reviewed_selected() {
