@@ -93,11 +93,9 @@ async function ensureGitignore(repoPath: string, entry: string): Promise<void> {
 
 async function tryDeliverViaTmux(pane: string, prompt: string): Promise<boolean> {
   try {
-    // Fail fast if the pane isn't actually live (wrong target, tmux server
-    // down, tmux not installed) instead of sending keys into nothing.
-    execSync(`tmux has-session -t ${JSON.stringify(pane.split('.')[0])}`, {
-      stdio: 'ignore',
-    })
+    // display-message accepts any target form (pane ID %N, session:window.pane,
+    // etc.) and fails if the target doesn't resolve to a live pane. Single
+    // probe avoids the parsing ambiguity of has-session for pane-ID targets.
     execSync(`tmux display-message -t ${JSON.stringify(pane)} -p '#{pane_id}'`, {
       stdio: 'ignore',
     })

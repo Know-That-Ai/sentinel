@@ -72,6 +72,7 @@ async function cmdLink(): Promise<void> {
 
   const sessionId = crypto.randomUUID()
   const { pid: terminalPid, tty } = resolveTerminalContext()
+  const tmuxPane = detectTmuxPane()
 
   queries.insertLinkedSession({
     id: sessionId,
@@ -80,12 +81,26 @@ async function cmdLink(): Promise<void> {
     agentType: 'claude-code',
     terminalPid,
     tty,
-    tmuxPane: process.env.SENTINEL_DEFAULT_TMUX_PANE ?? null,
+    tmuxPane,
     repoPath: cwd,
     linkedAt: new Date().toISOString(),
   })
 
-  log(`Linked: ${repo}#${prNumber} (session ${sessionId}, pid ${terminalPid ?? '-'}, tty ${tty ?? '-'})`)
+  log(
+    `Linked: ${repo}#${prNumber} (session ${sessionId}, pid ${terminalPid ?? '-'}, tty ${tty ?? '-'}` +
+      (tmuxPane ? `, tmux ${tmuxPane}` : '') +
+      ')'
+  )
+}
+
+function detectTmuxPane(): string | null {
+  // When inside tmux, $TMUX_PANE is set to the pane ID (e.g. "%0").
+  // This is the robust injection target: `tmux send-keys -t %0 ...` works
+  // regardless of what the outer terminal host is (iTerm, Terminal, Cursor,
+  // VS Code, Alacritty). Falls back to the pinned default in .env.
+  const ambient = process.env.TMUX_PANE
+  if (ambient) return ambient
+  return process.env.SENTINEL_DEFAULT_TMUX_PANE ?? null
 }
 
 function resolveTerminalContext(): { pid: number | null; tty: string | null } {
