@@ -50,7 +50,7 @@ fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::S
             Row::new(vec![
                 Cell::from(s.repo.clone()),
                 Cell::from(format!("#{}", s.pr_number)),
-                Cell::from(agent_badge(&s.agent_type, t)),
+                Cell::from(agent_badge(&s.agent_type, t, selected)),
                 Cell::from(pid),
                 Cell::from(relative_time(&s.linked_at)),
             ])
@@ -154,11 +154,15 @@ fn hdr(s: &str, t: Theme) -> Cell<'_> {
     )
 }
 
-fn agent_badge(agent: &str, t: Theme) -> Span<'_> {
-    let color = match agent {
-        "claude-code" => t.primary,
-        "openclaw" => t.accent,
-        _ => t.text,
+fn agent_badge(agent: &str, t: Theme, selected: bool) -> Span<'_> {
+    let color = if selected {
+        t.selected_fg
+    } else {
+        match agent {
+            "claude-code" => t.primary,
+            "openclaw" => t.accent,
+            _ => t.text,
+        }
     };
     Span::styled(
         agent.to_string(),

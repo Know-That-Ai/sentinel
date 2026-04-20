@@ -46,16 +46,19 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
     let t = app.theme;
+    let active = app.tab.index();
     let titles: Vec<Line> = Tab::ALL
         .iter()
         .enumerate()
         .map(|(i, tab)| {
+            let num_fg = if i == active { t.selected_fg } else { t.muted };
+            let title_fg = if i == active { t.selected_fg } else { t.text };
             let mut spans = vec![
                 Span::styled(
                     format!(" {} ", i + 1),
-                    Style::default().fg(t.muted),
+                    Style::default().fg(num_fg),
                 ),
-                Span::raw(tab.title()),
+                Span::styled(tab.title(), Style::default().fg(title_fg)),
             ];
             if let Some(n) = app.badge_for(*tab) {
                 spans.push(Span::styled(

@@ -30,7 +30,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
 
     let right = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(14), Constraint::Min(6)])
+        .constraints([Constraint::Length(17), Constraint::Min(6)])
         .split(layout[1]);
 
     render_reacts_to(f, left[0], cfg, t);
