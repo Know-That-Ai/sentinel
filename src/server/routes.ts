@@ -96,6 +96,16 @@ healthRouter.post('/state/sessions/:id/focus', async (req, res) => {
   res.json(result)
 })
 
+healthRouter.post('/state/sessions/:id/unlink', (req, res) => {
+  const session = queries.getActiveLinkedSessions().find((s) => s.id === req.params.id)
+  if (!session) {
+    res.status(404).json({ ok: false, reason: 'session_not_found' })
+    return
+  }
+  queries.unlinkSession(session.repo, session.pr_number, 'user_dismissed')
+  res.json({ ok: true })
+})
+
 healthRouter.post('/state/dispatch/:id', async (req, res) => {
   try {
     const event = queries.getEventById(req.params.id)

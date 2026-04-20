@@ -53,9 +53,26 @@ impl Client {
     pub fn focus_session(&self, id: &str) -> Result<FocusResult> {
         let url = format!("{}/state/sessions/{}/focus", self.base, id);
         let res = self.http.post(&url).send()?;
-        // Focus endpoint returns 404 if session not found — swallow so the UI
-        // can show the reason field instead of blowing up on error_for_status.
-        Ok(res.json::<FocusResult>()?)
+        let status = res.status();
+        let body = res.text().unwrap_or_default();
+        if let Ok(parsed) = serde_json::from_str::<FocusResult>(&body) {
+            return Ok(parsed);
+        }
+        // Old daemon returns HTML for this unknown route — guide the user.
+        if status.as_u16() == 404 {
+            return Ok(FocusResult {
+                ok: false,
+                via: None,
+                reason: Some("daemon_needs_restart".into()),
+            });
+        }
+        anyhow::bail!("focus_session: unexpected response ({status}): {body}")
+    }
+
+    pub fn unlink_session(&self, id: &str) -> Result<()> {
+        let url = format!("{}/state/sessions/{}/unlink", self.base, id);
+        self.http.post(&url).send()?.error_for_status()?;
+        Ok(())
     }
 
     fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {

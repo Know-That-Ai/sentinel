@@ -151,6 +151,11 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) -> Result<bool> 
                 app.flash(format!("error: {e}"));
             }
         }
+        (KeyCode::Char('x'), _) if app.tab == Tab::Sessions => {
+            if let Err(e) = app.unlink_selected_session() {
+                app.flash(format!("error: {e}"));
+            }
+        }
         _ => {}
     }
     Ok(false)

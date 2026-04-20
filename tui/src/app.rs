@@ -290,11 +290,30 @@ impl App {
             if result.ok {
                 self.flash(format!("focused {} #{}", s.repo, s.pr_number));
             } else {
-                self.flash(format!(
-                    "could not focus: {}",
-                    result.reason.as_deref().unwrap_or("unknown")
-                ));
+                let hint = match result.reason.as_deref() {
+                    Some("daemon_needs_restart") => "daemon needs restart (sentinel restart)",
+                    Some("no_tty_resolved") => "no tty recorded — try re-linking",
+                    Some("no_matching_terminal_window") => {
+                        "terminal tab closed — stored tty no longer matches any window"
+                    }
+                    Some(other) => other,
+                    None => "unknown",
+                };
+                self.flash(format!("could not focus: {hint}"));
             }
+        }
+        Ok(())
+    }
+
+    pub fn unlink_selected_session(&mut self) -> Result<()> {
+        if let Some(s) = self.selected_session().cloned() {
+            self.client.unlink_session(&s.id)?;
+            self.flash(format!("dismissed {} #{}", s.repo, s.pr_number));
+            // Keep cursor in bounds after the row disappears on next refresh.
+            if self.sessions_cursor > 0 {
+                self.sessions_cursor -= 1;
+            }
+            self.request_refresh();
         }
         Ok(())
     }
