@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::theme::Theme;
 use crate::views::relative_time;
 use ratatui::{
     prelude::*,
@@ -22,12 +23,13 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::Session]) {
+    let t = app.theme;
     let header = Row::new(vec![
-        hdr("REPO"),
-        hdr("PR"),
-        hdr("AGENT"),
-        hdr("PID"),
-        hdr("LINKED"),
+        hdr("REPO", t),
+        hdr("PR", t),
+        hdr("AGENT", t),
+        hdr("PID", t),
+        hdr("LINKED", t),
     ])
     .height(1);
 
@@ -41,14 +43,14 @@ fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::S
                 .unwrap_or_else(|| "-".into());
             let selected = i == app.sessions_cursor;
             let style = if selected {
-                Style::default().fg(Color::Black).bg(Color::Magenta)
+                Style::default().fg(t.selected_fg).bg(t.selected_bg)
             } else {
                 Style::default()
             };
             Row::new(vec![
                 Cell::from(s.repo.clone()),
                 Cell::from(format!("#{}", s.pr_number)),
-                Cell::from(agent_badge(&s.agent_type)),
+                Cell::from(agent_badge(&s.agent_type, t)),
                 Cell::from(pid),
                 Cell::from(relative_time(&s.linked_at)),
             ])
@@ -67,10 +69,10 @@ fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::S
     let table = Table::new(rows, widths).header(header).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray))
+            .border_style(Style::default().fg(t.border))
             .title(Span::styled(
                 " linked sessions ",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
             ))
             .padding(Padding::horizontal(1)),
     );
@@ -78,27 +80,29 @@ fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::S
 }
 
 fn render_detail(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::Session]) {
+    let t = app.theme;
     let Some(s) = sessions.get(app.sessions_cursor) else {
         return;
     };
     let lines = vec![
-        kv("session id", &s.id),
-        kv("repo path ", &s.repo_path),
-        kv("tmux pane ", s.tmux_pane.as_deref().unwrap_or("-")),
-        kv("linked at ", &s.linked_at),
+        kv("session id", &s.id, t),
+        kv("repo path ", &s.repo_path, t),
+        kv("tmux pane ", s.tmux_pane.as_deref().unwrap_or("-"), t),
+        kv("linked at ", &s.linked_at, t),
     ];
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.border))
         .title(Span::styled(
             " details ",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.muted),
         ))
         .padding(Padding::horizontal(2));
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn render_empty(f: &mut Frame, area: Rect, app: &App) {
+    let t = app.theme;
     let has_query = !app.filter_query.is_empty();
     let total = app.snap.sessions.len();
     let msg = if has_query && total > 0 {
@@ -106,12 +110,12 @@ fn render_empty(f: &mut Frame, area: Rect, app: &App) {
             Line::from(""),
             Line::from(Span::styled(
                 format!("  No sessions match filter \"{}\".", app.filter_query),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.muted),
             )),
             Line::from(""),
             Line::from(Span::styled(
                 "  Press Esc to clear.",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.muted),
             )),
         ]
     } else {
@@ -119,42 +123,42 @@ fn render_empty(f: &mut Frame, area: Rect, app: &App) {
             Line::from(""),
             Line::from(Span::styled(
                 "  No linked sessions yet.",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.muted),
             )),
             Line::from(""),
             Line::from(vec![
                 Span::raw("  From any repo with an open PR, run  "),
                 Span::styled(
                     "`sentinel link`",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
                 ),
             ]),
             Line::from(Span::styled(
                 "  or let the Claude Code PostToolUse hook auto-link.",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.muted),
             )),
         ]
     };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.border))
         .title(" linked sessions ");
     f.render_widget(Paragraph::new(msg).block(block), area);
 }
 
-fn hdr(s: &str) -> Cell<'_> {
+fn hdr(s: &str, t: Theme) -> Cell<'_> {
     Cell::from(s).style(
         Style::default()
-            .fg(Color::DarkGray)
+            .fg(t.muted)
             .add_modifier(Modifier::BOLD),
     )
 }
 
-fn agent_badge(agent: &str) -> Span<'_> {
+fn agent_badge(agent: &str, t: Theme) -> Span<'_> {
     let color = match agent {
-        "claude-code" => Color::Magenta,
-        "openclaw" => Color::Cyan,
-        _ => Color::White,
+        "claude-code" => t.primary,
+        "openclaw" => t.accent,
+        _ => t.text,
     };
     Span::styled(
         agent.to_string(),
@@ -162,12 +166,9 @@ fn agent_badge(agent: &str) -> Span<'_> {
     )
 }
 
-fn kv<'a>(label: &'a str, value: &str) -> Line<'a> {
+fn kv<'a>(label: &'a str, value: &str, t: Theme) -> Line<'a> {
     Line::from(vec![
-        Span::styled(
-            format!("{label}  "),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(value.to_string(), Style::default().fg(Color::White)),
+        Span::styled(format!("{label}  "), Style::default().fg(t.muted)),
+        Span::styled(value.to_string(), Style::default().fg(t.text)),
     ])
 }

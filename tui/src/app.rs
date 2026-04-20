@@ -1,4 +1,5 @@
 use crate::api::{Client, Config, Event, Health, Session, WebhookLogEntry};
+use crate::theme::Theme;
 use anyhow::Result;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -77,6 +78,7 @@ pub enum Msg {
 
 pub struct App {
     pub tab: Tab,
+    pub theme: Theme,
     pub snap: Snapshot,
     pub sessions_cursor: usize,
     pub events_cursor: usize,
@@ -109,6 +111,7 @@ impl App {
         spawn_poller(Client::new(base.clone()), tx.clone(), refresh_rx);
         Self {
             tab: Tab::Dashboard,
+            theme: Theme::from_env(),
             snap: Snapshot::default(),
             sessions_cursor: 0,
             events_cursor: 0,

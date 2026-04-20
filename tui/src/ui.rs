@@ -45,23 +45,24 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
+    let t = app.theme;
     let titles: Vec<Line> = Tab::ALL
         .iter()
         .enumerate()
-        .map(|(i, t)| {
+        .map(|(i, tab)| {
             let mut spans = vec![
                 Span::styled(
                     format!(" {} ", i + 1),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(t.muted),
                 ),
-                Span::raw(t.title()),
+                Span::raw(tab.title()),
             ];
-            if let Some(n) = app.badge_for(*t) {
+            if let Some(n) = app.badge_for(*tab) {
                 spans.push(Span::styled(
                     format!(" •{n}"),
                     Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Yellow)
+                        .fg(t.badge_fg)
+                        .bg(t.badge_bg)
                         .add_modifier(Modifier::BOLD),
                 ));
             }
@@ -77,19 +78,19 @@ fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray))
+                .border_style(Style::default().fg(t.border))
                 .title(Span::styled(
                     " 👁 sentinel ",
                     Style::default()
-                        .fg(Color::Magenta)
+                        .fg(t.primary)
                         .add_modifier(Modifier::BOLD),
                 ))
                 .title_top(Line::from(header_text).alignment(Alignment::Right)),
         )
         .highlight_style(
             Style::default()
-                .fg(Color::Black)
-                .bg(Color::Magenta)
+                .fg(t.selected_fg)
+                .bg(t.selected_bg)
                 .add_modifier(Modifier::BOLD),
         )
         .divider("│");
@@ -97,9 +98,10 @@ fn render_tabs(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn header_line(app: &App) -> Vec<Span<'_>> {
+    let t = app.theme;
     let ok = app.snap.health.is_some();
     let dot = if ok { "●" } else { "○" };
-    let color = if ok { Color::Green } else { Color::Red };
+    let color = if ok { t.success } else { t.error };
     let user = app
         .snap
         .config
@@ -115,13 +117,14 @@ fn header_line(app: &App) -> Vec<Span<'_>> {
         .unwrap_or_default();
     vec![
         Span::styled(format!(" {} daemon ", dot), Style::default().fg(color)),
-        Span::styled(user, Style::default().fg(Color::DarkGray)),
+        Span::styled(user, Style::default().fg(t.muted)),
     ]
 }
 
 fn render_filter_bar(f: &mut Frame, area: Rect, app: &App) {
+    let t = app.theme;
     let prefix = if app.filter_mode { "/" } else { "filter:" };
-    let prefix_color = if app.filter_mode { Color::Cyan } else { Color::DarkGray };
+    let prefix_color = if app.filter_mode { t.accent } else { t.muted };
 
     let mut spans = vec![
         Span::styled(
@@ -130,13 +133,13 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &App) {
         ),
         Span::styled(
             app.filter_query.clone(),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.text).add_modifier(Modifier::BOLD),
         ),
     ];
     if app.filter_mode {
         spans.push(Span::styled(
             "▏",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::RAPID_BLINK),
+            Style::default().fg(t.accent).add_modifier(Modifier::RAPID_BLINK),
         ));
     }
     spans.push(Span::raw("  "));
@@ -145,13 +148,14 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &App) {
     } else {
         "[/] edit · [esc] clear"
     };
-    spans.push(Span::styled(hint, Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(hint, Style::default().fg(t.muted)));
 
     let p = Paragraph::new(Line::from(spans));
     f.render_widget(p, area);
 }
 
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
+    let t = app.theme;
     let hint = match app.tab {
         Tab::Dashboard => "[tab] switch  [r] refresh  [?] help  [q] quit",
         Tab::Sessions => "[j/k] move  [/] filter  [o] open PR  [r] refresh  [?] help  [q] quit",
@@ -160,19 +164,19 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
         Tab::Config => "[tab] switch  [r] refresh  [?] help  [q] quit",
     };
 
-    let mut spans = vec![Span::styled(hint, Style::default().fg(Color::DarkGray))];
+    let mut spans = vec![Span::styled(hint, Style::default().fg(t.muted))];
     if let Some((msg, _)) = &app.flash {
         spans.push(Span::raw("  ·  "));
         spans.push(Span::styled(
             msg.clone(),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.warning).add_modifier(Modifier::BOLD),
         ));
     }
     if let Some(err) = &app.snap.error {
         spans.push(Span::raw("  ·  "));
         spans.push(Span::styled(
             format!("err: {err}"),
-            Style::default().fg(Color::Red),
+            Style::default().fg(t.error),
         ));
     }
     let p = Paragraph::new(Line::from(spans)).block(Block::default().padding(Padding::horizontal(1)));
@@ -180,6 +184,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_help_overlay(f: &mut Frame, area: Rect, app: &App) {
+    let t = app.theme;
     let width = area.width.saturating_sub(8).min(70);
     let height = area.height.saturating_sub(4).min(26);
     let x = area.x + (area.width.saturating_sub(width)) / 2;
@@ -189,68 +194,68 @@ fn render_help_overlay(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Clear, rect);
 
     let mut lines: Vec<Line> = Vec::new();
-    lines.push(section("Navigation"));
+    lines.push(section("Navigation", t.warning));
     lines.extend([
-        key_row("tab / shift-tab", "next / previous tab"),
-        key_row("1 2 3 4 5", "jump to tab by number"),
-        key_row("j / k  or  ↑ / ↓", "move cursor in lists"),
-        key_row("q  or  ctrl-c", "quit"),
+        key_row("tab / shift-tab", "next / previous tab", t),
+        key_row("1 2 3 4 5", "jump to tab by number", t),
+        key_row("j / k  or  ↑ / ↓", "move cursor in lists", t),
+        key_row("q  or  ctrl-c", "quit", t),
     ]);
 
     lines.push(Line::raw(""));
-    lines.push(section("Filter & help"));
+    lines.push(section("Filter & help", t.warning));
     lines.extend([
-        key_row("/", "filter the current list (substring, case-insensitive)"),
-        key_row("esc", "clear filter OR quit if empty"),
-        key_row("?", "show / hide this overlay"),
+        key_row("/", "filter the current list (substring, case-insensitive)", t),
+        key_row("esc", "clear filter OR quit if empty", t),
+        key_row("?", "show / hide this overlay", t),
     ]);
 
     lines.push(Line::raw(""));
     match app.tab {
         Tab::Dashboard => {
-            lines.push(section("Dashboard"));
-            lines.push(key_row("r", "refresh snapshot"));
+            lines.push(section("Dashboard", t.warning));
+            lines.push(key_row("r", "refresh snapshot", t));
         }
         Tab::Sessions => {
-            lines.push(section("Sessions"));
+            lines.push(section("Sessions", t.warning));
             lines.extend([
-                key_row("o", "open selected PR in browser"),
-                key_row("r", "refresh"),
+                key_row("o", "open selected PR in browser", t),
+                key_row("r", "refresh", t),
             ]);
         }
         Tab::Events => {
-            lines.push(section("Events"));
+            lines.push(section("Events", t.warning));
             lines.extend([
-                key_row("r", "mark selected event reviewed"),
-                key_row("d", "dispatch selected event into its linked session"),
-                key_row("o", "open event on GitHub"),
+                key_row("r", "mark selected event reviewed", t),
+                key_row("d", "dispatch selected event into its linked session", t),
+                key_row("o", "open event on GitHub", t),
             ]);
         }
         Tab::Audit => {
-            lines.push(section("Audit"));
+            lines.push(section("Audit", t.warning));
             lines.extend([
-                key_row("a", "toggle noise filter (hide/show github-actions etc.)"),
-                key_row("r", "refresh"),
+                key_row("a", "toggle noise filter (hide/show github-actions etc.)", t),
+                key_row("r", "refresh", t),
             ]);
         }
         Tab::Config => {
-            lines.push(section("Config"));
-            lines.push(key_row("r", "refresh from daemon"));
+            lines.push(section("Config", t.warning));
+            lines.push(key_row("r", "refresh from daemon", t));
         }
     }
 
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  Any key closes this overlay.",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(t.muted),
     )));
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Magenta))
+        .border_style(Style::default().fg(t.primary))
         .title(Span::styled(
             " help ",
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.primary).add_modifier(Modifier::BOLD),
         ))
         .padding(Padding::new(2, 2, 1, 1));
     f.render_widget(
@@ -259,19 +264,19 @@ fn render_help_overlay(f: &mut Frame, area: Rect, app: &App) {
     );
 }
 
-fn section(label: &str) -> Line<'_> {
+fn section(label: &str, color: ratatui::style::Color) -> Line<'_> {
     Line::from(Span::styled(
         label.to_string(),
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
     ))
 }
 
-fn key_row<'a>(keys: &'a str, desc: &'a str) -> Line<'a> {
+fn key_row<'a>(keys: &'a str, desc: &'a str, t: crate::theme::Theme) -> Line<'a> {
     Line::from(vec![
         Span::styled(
             format!("  {:<20}", keys),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(desc.to_string(), Style::default().fg(Color::White)),
+        Span::styled(desc.to_string(), Style::default().fg(t.text)),
     ])
 }

@@ -1,5 +1,6 @@
 use crate::api::{Event, Session};
 use crate::app::App;
+use crate::theme::Theme;
 use crate::views::relative_time;
 use ratatui::{
     prelude::*,
@@ -23,32 +24,33 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_list(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
+    let t = app.theme;
     let items: Vec<ListItem> = events
         .iter()
         .enumerate()
         .map(|(i, e)| {
             let selected = i == app.events_cursor;
             let arrow = if selected { "▶ " } else { "  " };
-            let source_color = source_color(&e.source);
+            let src_color = source_color(&e.source, t);
 
             let header = Line::from(vec![
                 Span::styled(
                     arrow,
-                    Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                    Style::default().fg(t.primary).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("[{:<7}]", e.source),
-                    Style::default().fg(source_color).add_modifier(Modifier::BOLD),
+                    Style::default().fg(src_color).add_modifier(Modifier::BOLD),
                 ),
                 Span::raw("  "),
                 Span::styled(
                     format!("{} #{}", e.repo, e.pr_number),
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                    Style::default().fg(t.text).add_modifier(Modifier::BOLD),
                 ),
                 Span::raw("  "),
                 Span::styled(
                     relative_time(&e.received_at),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(t.muted),
                 ),
             ]);
 
@@ -64,11 +66,11 @@ fn render_list(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
                 .collect::<String>();
             let body_line = Line::from(vec![
                 Span::raw("    "),
-                Span::styled(body, Style::default().fg(Color::Gray)),
+                Span::styled(body, Style::default().fg(t.muted)),
             ]);
 
             let style = if selected {
-                Style::default().bg(Color::Rgb(40, 40, 60))
+                Style::default().bg(t.highlight_bg)
             } else {
                 Style::default()
             };
@@ -79,10 +81,10 @@ fn render_list(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray))
+            .border_style(Style::default().fg(t.border))
             .title(Span::styled(
                 " unreviewed events ",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default().fg(t.warning).add_modifier(Modifier::BOLD),
             ))
             .padding(Padding::horizontal(1)),
     );
@@ -90,6 +92,7 @@ fn render_list(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
 }
 
 fn render_detail(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
+    let t = app.theme;
     let Some(ev) = events.get(app.events_cursor).copied() else {
         return;
     };
@@ -97,23 +100,17 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
     let linked = find_linked_session(app, ev);
     let dispatch_status = match &linked {
         Some(s) => Line::from(vec![
-            Span::styled(
-                "will dispatch into  ",
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled("will dispatch into  ", Style::default().fg(t.muted)),
             Span::styled(
                 format!("{} → {}", s.agent_type, s.repo_path),
-                Style::default().fg(Color::Green),
+                Style::default().fg(t.success),
             ),
         ]),
         None => Line::from(vec![
-            Span::styled(
-                "no linked session  ",
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled("no linked session  ", Style::default().fg(t.muted)),
             Span::styled(
                 "(falls back to notification)",
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(t.warning),
             ),
         ]),
     };
@@ -123,51 +120,52 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App, events: &[&Event]) {
             Span::styled(
                 format!("[{}]  ", ev.source),
                 Style::default()
-                    .fg(source_color(&ev.source))
+                    .fg(source_color(&ev.source, t))
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 ev.actor.clone(),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default().fg(t.text).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::raw(""),
         Line::from(vec![
-            Span::styled("PR       ", Style::default().fg(Color::DarkGray)),
+            Span::styled("PR       ", Style::default().fg(t.muted)),
             Span::raw(format!("{} #{} — {}", ev.repo, ev.pr_number, ev.pr_title)),
         ]),
         Line::from(vec![
-            Span::styled("author   ", Style::default().fg(Color::DarkGray)),
+            Span::styled("author   ", Style::default().fg(t.muted)),
             Span::raw(ev.pr_author.clone()),
         ]),
         Line::from(vec![
-            Span::styled("received ", Style::default().fg(Color::DarkGray)),
+            Span::styled("received ", Style::default().fg(t.muted)),
             Span::raw(relative_time(&ev.received_at)),
         ]),
         Line::raw(""),
         dispatch_status,
         Line::raw(""),
-        Line::styled("body", Style::default().fg(Color::DarkGray)),
+        Line::styled("body", Style::default().fg(t.muted)),
     ];
     for line in ev.body.as_deref().unwrap_or("(no body)").lines().take(20) {
         lines.push(Line::from(Span::styled(
             format!("  {line}"),
-            Style::default().fg(Color::White),
+            Style::default().fg(t.text),
         )));
     }
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.border))
         .title(Span::styled(
             " detail ",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(t.warning),
         ))
         .padding(Padding::new(2, 2, 1, 1));
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }
 
 fn render_empty(f: &mut Frame, area: Rect, app: &App) {
+    let t = app.theme;
     let has_query = !app.filter_query.is_empty();
     let total = app.snap.events.len();
     let msg = if has_query && total > 0 {
@@ -175,12 +173,12 @@ fn render_empty(f: &mut Frame, area: Rect, app: &App) {
             Line::from(""),
             Line::from(Span::styled(
                 format!("  No events match filter \"{}\".", app.filter_query),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.muted),
             )),
             Line::from(""),
             Line::from(Span::styled(
                 "  Press Esc to clear.",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.muted),
             )),
         ]
     } else {
@@ -188,18 +186,18 @@ fn render_empty(f: &mut Frame, area: Rect, app: &App) {
             Line::from(""),
             Line::from(Span::styled(
                 "  Inbox zero 🎉 — no unreviewed events.",
-                Style::default().fg(Color::Green),
+                Style::default().fg(t.success),
             )),
             Line::from(""),
             Line::from(Span::styled(
                 "  New scanner comments will show up here.",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.muted),
             )),
         ]
     };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(t.border))
         .title(" unreviewed events ");
     f.render_widget(Paragraph::new(msg).block(block), area);
 }
@@ -215,11 +213,11 @@ fn find_linked_session<'a>(app: &'a App, ev: &Event) -> Option<&'a Session> {
         })
 }
 
-fn source_color(source: &str) -> Color {
+fn source_color(source: &str, t: Theme) -> Color {
     match source {
-        "bugbot" => Color::Red,
-        "codeql" => Color::Yellow,
-        "ci" => Color::Blue,
-        _ => Color::White,
+        "bugbot" => t.error,
+        "codeql" => t.warning,
+        "ci" => t.info,
+        _ => t.text,
     }
 }
