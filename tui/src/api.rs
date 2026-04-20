@@ -110,6 +110,14 @@ pub struct Session {
     pub repo_path: String,
     pub linked_at: String,
     pub unlinked_at: Option<String>,
+    #[serde(default = "default_status")]
+    pub pr_status: String,
+    #[serde(default)]
+    pub open_events: i64,
+}
+
+fn default_status() -> String {
+    "unknown".into()
 }
 
 #[derive(Deserialize, Clone, Debug)]

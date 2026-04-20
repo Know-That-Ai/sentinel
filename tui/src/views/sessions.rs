@@ -15,7 +15,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(5), Constraint::Length(7)])
+        .constraints([Constraint::Min(5), Constraint::Length(8)])
         .split(area);
 
     render_table(f, layout[0], app, &sessions);
@@ -25,6 +25,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
 fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::Session]) {
     let t = app.theme;
     let header = Row::new(vec![
+        hdr("", t),
         hdr("REPO", t),
         hdr("PR", t),
         hdr("AGENT", t),
@@ -48,6 +49,7 @@ fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::S
                 Style::default()
             };
             Row::new(vec![
+                Cell::from(status_badge(&s.pr_status, t, selected)),
                 Cell::from(s.repo.clone()),
                 Cell::from(format!("#{}", s.pr_number)),
                 Cell::from(agent_badge(&s.agent_type, t, selected)),
@@ -59,6 +61,7 @@ fn render_table(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::S
         .collect();
 
     let widths = [
+        Constraint::Length(3),
         Constraint::Percentage(42),
         Constraint::Length(8),
         Constraint::Length(14),
@@ -84,7 +87,29 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App, sessions: &[&crate::api::
     let Some(s) = sessions.get(app.sessions_cursor) else {
         return;
     };
+    let status_text = match s.pr_status.as_str() {
+        "green" => format!("all checks green · ready to merge"),
+        "red" => {
+            if s.open_events > 0 {
+                format!("{} open scanner event(s) or failing check(s)", s.open_events)
+            } else {
+                "one or more checks failing".into()
+            }
+        }
+        "pending" => "checks running…".into(),
+        _ => "no checks seen yet".into(),
+    };
+    let status_color = match s.pr_status.as_str() {
+        "green" => t.success,
+        "red" => t.error,
+        "pending" => t.warning,
+        _ => t.muted,
+    };
     let lines = vec![
+        Line::from(vec![
+            Span::styled("status     ", Style::default().fg(t.muted)),
+            Span::styled(status_text, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+        ]),
         kv("session id", &s.id, t),
         kv("repo path ", &s.repo_path, t),
         kv("tmux pane ", s.tmux_pane.as_deref().unwrap_or("-"), t),
@@ -151,6 +176,20 @@ fn hdr(s: &str, t: Theme) -> Cell<'_> {
         Style::default()
             .fg(t.muted)
             .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn status_badge(status: &str, t: Theme, selected: bool) -> Span<'_> {
+    let (glyph, color) = match status {
+        "green" => ("●", t.success),
+        "red" => ("●", t.error),
+        "pending" => ("◐", t.warning),
+        _ => ("○", t.muted),
+    };
+    let fg = if selected { t.selected_fg } else { color };
+    Span::styled(
+        glyph.to_string(),
+        Style::default().fg(fg).add_modifier(Modifier::BOLD),
     )
 }
 

@@ -34,7 +34,39 @@ healthRouter.get('/state/unreviewed', (_req, res) => {
 
 healthRouter.get('/state/sessions', (_req, res) => {
   const sessions = queries.getActiveLinkedSessions()
-  res.json(sessions)
+  const openEventsByKey = new Map<string, number>()
+  for (const e of queries.getUnreviewedEvents()) {
+    const k = `${e.repo.toLowerCase()}#${e.pr_number}`
+    openEventsByKey.set(k, (openEventsByKey.get(k) ?? 0) + 1)
+  }
+  const enriched = sessions.map((s) => {
+    const checks = queries.getPRHealth(s.repo, s.pr_number)
+    const key = `${s.repo.toLowerCase()}#${s.pr_number}`
+    const openEvents = openEventsByKey.get(key) ?? 0
+    const hasChecks = checks.length > 0
+    const anyFailure = checks.some(
+      (c) => c.last_conclusion === 'failure' || c.last_conclusion === 'timed_out'
+    )
+    const anyPending = checks.some(
+      (c) => c.last_conclusion === 'pending' || c.last_conclusion === 'in_progress'
+    )
+    let pr_status: 'green' | 'red' | 'pending' | 'unknown'
+    if (!hasChecks) pr_status = 'unknown'
+    else if (anyFailure || openEvents > 0) pr_status = 'red'
+    else if (anyPending) pr_status = 'pending'
+    else pr_status = 'green'
+    return {
+      ...s,
+      pr_status,
+      open_events: openEvents,
+      checks: checks.map((c) => ({
+        name: c.check_name,
+        conclusion: c.last_conclusion,
+        last_run_at: c.last_run_at,
+      })),
+    }
+  })
+  res.json(enriched)
 })
 
 healthRouter.get('/state/webhook-log', (req, res) => {

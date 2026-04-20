@@ -28,6 +28,9 @@ interface LinkedSession {
   pr_number: number
   agent_type: string
   unlinked_at: string | null
+  terminal_pid?: number | null
+  pr_status?: 'green' | 'red' | 'pending' | 'unknown'
+  open_events?: number
 }
 
 export function App() {
@@ -124,13 +127,23 @@ export function App() {
       {sessions.filter(s => !s.unlinked_at).length > 0 && (
         <div className="linked-sessions">
           <div className="linked-header">{'\uD83D\uDD17'} Linked Sessions</div>
-          {sessions.filter(s => !s.unlinked_at).map(s => (
-            <div key={s.id} className="linked-row">
-              <span className="linked-agent">{s.agent_type === 'claude-code' ? '\u26A1' : '\uD83E\uDD16'}</span>
-              <span className="linked-detail">{s.repo}#{s.pr_number}</span>
-              <span className="linked-pid">pid {s.terminal_pid ?? '-'}</span>
-            </div>
-          ))}
+          {sessions.filter(s => !s.unlinked_at).map(s => {
+            const status = s.pr_status ?? 'unknown'
+            const dotClass = `pr-status-dot pr-status-${status}`
+            const title =
+              status === 'green' ? 'All checks green — ready to merge' :
+              status === 'red' ? `${s.open_events ?? 0} open event(s) or failing check(s)` :
+              status === 'pending' ? 'Checks running' :
+              'No checks seen yet'
+            return (
+              <div key={s.id} className="linked-row">
+                <span className={dotClass} title={title}>{'\u25CF'}</span>
+                <span className="linked-agent">{s.agent_type === 'claude-code' ? '\u26A1' : '\uD83E\uDD16'}</span>
+                <span className="linked-detail">{s.repo}#{s.pr_number}</span>
+                <span className="linked-pid">pid {s.terminal_pid ?? '-'}</span>
+              </div>
+            )
+          })}
         </div>
       )}
 
