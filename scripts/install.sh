@@ -8,8 +8,10 @@ echo "Installing dependencies..."
 pnpm install
 
 # 2. Build
-echo "Building..."
+echo "Building Node..."
 pnpm build
+echo "Building TUI (Rust)..."
+pnpm build:tui
 
 # 3. Create config directory
 mkdir -p ~/.sentinel
@@ -25,8 +27,21 @@ if [ ! -f .env ]; then
 fi
 
 # 5. Install the sentinel CLI globally so `sentinel link` works from any terminal
-echo "Linking sentinel CLI globally..."
-pnpm link --global
+echo "Linking sentinel CLI..."
+# pnpm link --global is unreliable without a configured global bin dir.
+# Symlink directly into the first writable dir on PATH instead.
+CLI_TARGET="$(pwd)/dist/cli.js"
+for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
+  if [ -d "$dir" ] && [ -w "$dir" ]; then
+    ln -sf "$CLI_TARGET" "$dir/sentinel"
+    echo "  → sentinel → $dir/sentinel"
+    break
+  fi
+done
+# Ensure the chosen bin dir is actually on PATH for this shell session
+if ! command -v sentinel &>/dev/null; then
+  echo "  Note: add \$HOME/.local/bin to your PATH if 'sentinel' is not found after install"
+fi
 
 # 6. Install the Claude Code PostToolUse hook globally
 echo "Installing Claude Code hook..."
@@ -35,6 +50,13 @@ pnpm run install-hook
 # 7. Register as a launchd service so it starts on login
 PLIST_PATH="$HOME/Library/LaunchAgents/com.sentinel.daemon.plist"
 SENTINEL_DIR="$(pwd)"
+
+# Capture the node bin dir at install time so launchd finds node regardless of
+# how it was installed (nvm, homebrew, volta, asdf, etc). launchd gets a bare
+# system PATH that won't include ~/.nvm or /opt/homebrew by default.
+NODE_BIN_DIR="$(dirname "$(which node)")"
+PNPM_BIN="$(which pnpm)"
+LAUNCHD_PATH="${NODE_BIN_DIR}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 cat > "$PLIST_PATH" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -45,7 +67,7 @@ cat > "$PLIST_PATH" << EOF
   <string>com.sentinel.daemon</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$(which pnpm)</string>
+    <string>${PNPM_BIN}</string>
     <string>start</string>
   </array>
   <key>WorkingDirectory</key>
@@ -54,6 +76,8 @@ cat > "$PLIST_PATH" << EOF
   <dict>
     <key>NODE_ENV</key>
     <string>production</string>
+    <key>PATH</key>
+    <string>${LAUNCHD_PATH}</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -67,6 +91,8 @@ cat > "$PLIST_PATH" << EOF
 </plist>
 EOF
 
+# Unload any existing agent before loading the updated plist
+launchctl unload "$PLIST_PATH" 2>/dev/null || true
 launchctl load "$PLIST_PATH"
 
 echo ""
