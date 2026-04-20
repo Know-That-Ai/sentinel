@@ -13,7 +13,9 @@ export interface SetupWebhooksOptions {
   org: string
   secret: string
   pat: string
-  updateExisting?: boolean
+  /** When rotating, the old smee URL to replace. Only that specific webhook
+   *  is updated — teammates' hooks on the same repo are left untouched. */
+  oldSmeeUrl?: string
 }
 
 export interface SetupWebhooksResult {
@@ -24,7 +26,7 @@ export interface SetupWebhooksResult {
 }
 
 export async function setupWebhooks(opts: SetupWebhooksOptions): Promise<SetupWebhooksResult> {
-  const { webhookUrl, org, secret, pat, updateExisting = false } = opts
+  const { webhookUrl, org, secret, pat, oldSmeeUrl } = opts
   const octokit = new Octokit({ auth: pat })
   const result: SetupWebhooksResult = { created: [], updated: [], skipped: [], errors: [] }
 
@@ -64,11 +66,10 @@ export async function setupWebhooks(opts: SetupWebhooksOptions): Promise<SetupWe
         continue
       }
 
-      // If updateExisting and there's a *different* sentinel-like webhook
-      // (pointing at any smee.io channel), update it in place rather than
-      // leaving the old one orphaned.
-      const staleSmee = updateExisting
-        ? hooks.find((h) => h.config.url?.startsWith('https://smee.io/'))
+      // If rotating, only replace the webhook pointing at OUR old URL — never
+      // touch a teammate's hook just because it also happens to use smee.io.
+      const staleSmee = oldSmeeUrl
+        ? hooks.find((h) => h.config.url === oldSmeeUrl)
         : undefined
       if (staleSmee) {
         await octokit.repos.updateWebhook({

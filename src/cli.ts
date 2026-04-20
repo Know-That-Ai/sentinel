@@ -443,6 +443,10 @@ async function cmdWebhooks(): Promise<void> {
     process.exit(1)
   }
 
+  // Capture old URL before overwriting — used to selectively update only OUR
+  // webhook when rotating, so we don't clobber a teammate's smee hook.
+  const oldSmeeUrl = smeeUrl
+
   if (rotate || !smeeUrl) {
     smeeUrl = await generateSmeeUrl()
     await writeEnvUpdate(envPath, 'SMEE_URL', smeeUrl)
@@ -461,7 +465,7 @@ async function cmdWebhooks(): Promise<void> {
     org,
     secret,
     pat,
-    updateExisting: rotate,
+    oldSmeeUrl: rotate && oldSmeeUrl ? oldSmeeUrl : undefined,
   })
 
   console.log('')
