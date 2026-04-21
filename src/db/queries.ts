@@ -120,6 +120,28 @@ export function markSessionMerged(repo: string, prNumber: number, mergedAt: stri
   ).run(mergedAt, repo, prNumber)
 }
 
+export function hasOpenMergeConflictEvent(repo: string, prNumber: number): boolean {
+  const db = getDB()
+  const row = db.prepare(
+    `SELECT 1 FROM events
+     WHERE repo = ? COLLATE NOCASE AND pr_number = ?
+       AND source = 'merge_conflict' AND reviewed = 0
+     LIMIT 1`
+  ).get(repo, prNumber)
+  return !!row
+}
+
+export function markMergeConflictEventsResolved(repo: string, prNumber: number): number {
+  const db = getDB()
+  const result = db.prepare(
+    `UPDATE events
+     SET reviewed = 1, auto_closed_at = ?, auto_close_reason = ?
+     WHERE repo = ? COLLATE NOCASE AND pr_number = ?
+       AND source = 'merge_conflict' AND reviewed = 0`
+  ).run(new Date().toISOString(), 'merge_conflict_resolved', repo, prNumber)
+  return result.changes
+}
+
 export function getPRHealth(repo: string, prNumber: number): PRHealthRow[] {
   const db = getDB()
   return db.prepare('SELECT * FROM pr_health WHERE repo = ? COLLATE NOCASE AND pr_number = ?')

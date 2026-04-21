@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 
-export type EventSource = 'bugbot' | 'codeql' | 'ci' | 'bot' | 'human' | 'other'
-export type EventType = 'comment' | 'check_failure' | 'review'
+export type EventSource = 'bugbot' | 'codeql' | 'ci' | 'bot' | 'human' | 'merge_conflict' | 'other'
+export type EventType = 'comment' | 'check_failure' | 'review' | 'merge_conflict'
 
 export interface SentinelEvent {
   id: string

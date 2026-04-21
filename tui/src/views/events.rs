@@ -234,6 +234,7 @@ fn source_color(source: &str, t: Theme) -> Color {
         "bugbot" => t.error,
         "codeql" => t.warning,
         "ci" => t.info,
+        "merge_conflict" => Color::Rgb(249, 115, 22), // orange-500
         _ => t.text,
     }
 }

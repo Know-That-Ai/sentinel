@@ -26,6 +26,7 @@ interface EventItemProps {
 function sourceLabel(source: string, eventType: string): string {
   if (source === 'bugbot') return 'BugBot'
   if (source === 'codeql') return 'CodeQL'
+  if (source === 'merge_conflict') return 'Conflict'
   if (eventType === 'check_failure') return 'CI Failed'
   if (source === 'human') return 'Review'
   return 'Other'
@@ -34,6 +35,7 @@ function sourceLabel(source: string, eventType: string): string {
 function sourceLabelClass(source: string, eventType: string): string {
   if (source === 'bugbot') return 'bugbot'
   if (source === 'codeql') return 'codeql'
+  if (source === 'merge_conflict') return 'merge-conflict'
   if (eventType === 'check_failure') return 'ci'
   return 'other'
 }

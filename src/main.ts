@@ -66,6 +66,11 @@ async function reconcileSessionStatus(): Promise<void> {
               status: c.status, // queued | in_progress | completed
             })
           }
+
+          // Merge-conflict detection. GitHub computes `mergeable` async, so
+          // pr.mergeable may be null right after a push; we just skip on null
+          // and pick it up on the next 2-min tick. `dirty` state = conflicts.
+          await handleMergeConflictState(s, pr)
         } catch {
           // ignore per-PR errors (rate limits, not-found, 403, etc.)
         }
@@ -76,6 +81,54 @@ async function reconcileSessionStatus(): Promise<void> {
   }
   await run()
   setInterval(run, 2 * 60_000)
+}
+
+async function handleMergeConflictState(
+  s: queries.LinkedSessionRow,
+  pr: { mergeable: boolean | null; mergeable_state?: string; html_url: string; title: string; user?: { login?: string } | null }
+): Promise<void> {
+  if (pr.mergeable === null) return // GitHub still computing
+
+  const hasOpen = queries.hasOpenMergeConflictEvent(s.repo, s.pr_number)
+  const conflicted = pr.mergeable === false || pr.mergeable_state === 'dirty'
+
+  if (conflicted && !hasOpen) {
+    const crypto = await import('crypto')
+    const eventId = crypto
+      .createHash('sha256')
+      .update(`${s.repo}:merge_conflict:${s.pr_number}:${Date.now()}`)
+      .digest('hex')
+    const event: import('./github/events.js').SentinelEvent = {
+      id: eventId,
+      repo: s.repo,
+      prNumber: s.pr_number,
+      prTitle: pr.title,
+      prUrl: pr.html_url,
+      prAuthor: pr.user?.login ?? '',
+      eventType: 'merge_conflict',
+      source: 'merge_conflict',
+      actor: 'sentinel',
+      body:
+        `This PR has merge conflicts with the base branch. Resolve them so the ` +
+        `PR can be merged. Check the PR page for the conflicting files.`,
+      githubUrl: pr.html_url,
+      receivedAt: new Date(),
+    }
+    queries.insertEvent(event)
+    console.log(`[reconcile] ${s.repo}#${s.pr_number} merge conflict detected`)
+
+    const { injectIntoSession } = await import('./agents/inject.js')
+    await injectIntoSession(
+      s,
+      { repo: s.repo, prNumber: s.pr_number, events: [event] },
+      { prTitle: pr.title, prUrl: pr.html_url }
+    ).catch(() => { /* inbox file still written; flash in UI handles visibility */ })
+  } else if (!conflicted && hasOpen) {
+    const closed = queries.markMergeConflictEventsResolved(s.repo, s.pr_number)
+    if (closed > 0) {
+      console.log(`[reconcile] ${s.repo}#${s.pr_number} merge conflict resolved (${closed} event(s) closed)`)
+    }
+  }
 }
 
 async function main(): Promise<void> {
