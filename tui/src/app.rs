@@ -391,6 +391,22 @@ fn matches_audit_query(e: &WebhookLogEntry, q: &str) -> bool {
     fields.iter().any(|s| s.contains(q))
 }
 
+/// Logins whose events are almost always deployment/build chatter, not
+/// anything a reviewer cares about. Hidden from the default audit view but
+/// still in the DB — toggle with `a` to see them.
+const NOISY_BOT_ACTORS: &[&str] = &[
+    "github-actions",
+    "github-actions[bot]",
+    "vercel",
+    "vercel[bot]",
+    "netlify",
+    "netlify[bot]",
+    "dependabot",
+    "dependabot[bot]",
+    "renovate",
+    "renovate[bot]",
+];
+
 fn is_interesting(e: &WebhookLogEntry) -> bool {
     // Keep everything that acted on something.
     if e.disposition != "dropped" {
@@ -406,22 +422,11 @@ fn is_interesting(e: &WebhookLogEntry) -> bool {
     {
         return false;
     }
-    // check_run from a CI/build bot with no scanner match — noisy but so
-    // common it buries everything else.
-    if e.event_type == "check_run" {
-        if let Some(actor) = e.actor.as_deref() {
-            let noisy = [
-                "github-actions",
-                "vercel",
-                "vercel[bot]",
-                "netlify",
-                "netlify[bot]",
-                "dependabot",
-                "dependabot[bot]",
-            ];
-            if noisy.contains(&actor) {
-                return false;
-            }
+    // Any event type from a deployment/build bot — Vercel's `issue_comment
+    // edited` fires on every preview URL refresh, which drowns the log.
+    if let Some(actor) = e.actor.as_deref() {
+        if NOISY_BOT_ACTORS.contains(&actor) {
+            return false;
         }
     }
     true

@@ -72,6 +72,10 @@ fn render_list(f: &mut Frame, area: Rect, app: &App, entries: &[&WebhookLogEntry
 
             let style = if selected {
                 Style::default().bg(t.highlight_bg)
+            } else if e.disposition == "dropped" {
+                // Dropped rows are the majority and almost always expected.
+                // Dim them so DISPATCHED / AUTO-CLOSE visually pop.
+                Style::default().add_modifier(Modifier::DIM)
             } else {
                 Style::default()
             };
@@ -228,7 +232,10 @@ fn disposition_style(d: &str, t: Theme) -> (Color, &'static str) {
     match d {
         "dispatched" => (t.success, "DISPATCHED"),
         "notified" => (t.warning, "NOTIFIED  "),
-        "dropped" => (t.error, "DROPPED   "),
+        // Muted instead of error-red — dropped is the default fate of most
+        // webhooks (CI completes, bots post, we don't care). Error-red is
+        // reserved for things that actually warrant attention.
+        "dropped" => (t.muted, "DROPPED   "),
         "auto_closed" => (t.info, "AUTO-CLOSE"),
         _ => (t.text, "?         "),
     }
