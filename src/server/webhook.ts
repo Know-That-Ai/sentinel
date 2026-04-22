@@ -74,16 +74,26 @@ webhookRouter.post('/webhook', raw({ type: 'application/json' }), async (req, re
     outcome = { disposition: 'dropped', reason: `handler_error: ${String(err)}` }
   }
 
-  queries.insertWebhookLog({
-    eventType: event,
-    action,
-    repo: outcome.repo ?? repo,
-    prNumber: outcome.prNumber ?? null,
-    actor: outcome.actor ?? null,
-    disposition: outcome.disposition,
-    reason: outcome.reason ?? null,
-    deliveryId,
-  })
+  try {
+    queries.insertWebhookLog({
+      eventType: event,
+      action,
+      repo: outcome.repo ?? repo,
+      prNumber: outcome.prNumber ?? null,
+      actor: outcome.actor ?? null,
+      disposition: outcome.disposition,
+      reason: outcome.reason ?? null,
+      deliveryId,
+    })
+  } catch (err) {
+    // Persisting the audit row is best-effort — if it fails (DB locked,
+    // disk full, schema drift), we still return 200 so smee doesn't retry,
+    // but we surface the failure on stderr so it's not silent.
+    console.error(
+      `[webhook] insertWebhookLog failed for ${event} (${action ?? '-'}) delivery=${deliveryId ?? '-'}:`,
+      err
+    )
+  }
   console.log(
     `[webhook] ${event} (${action ?? '-'}) → ${outcome.disposition}` +
       (outcome.reason ? ` [${outcome.reason}]` : '')
