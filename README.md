@@ -59,9 +59,9 @@ After install, edit `/Users/<you>/@kya-os/sentinel/.env`:
 | Variable | What to put | Required |
 |---|---|---|
 | `GITHUB_PAT` | your token | ✅ |
-| `GITHUB_ORG` | e.g. `Know-That-Ai` | ✅ |
+| `GITHUB_ORG` | e.g. `Know-That-Ai` | ✅ 
 | `GITHUB_USERNAME` | your GitHub handle | ✅ |
-| `WEBHOOK_SECRET` | any random 32+ char string | ✅ |
+| `WEBHOOK_SECRET` | `openssl rand -hex 32`  | ✅ |
 | `SCANNER_BOT_LOGINS` | comma-sep bot accounts to react to, e.g. `cursor-bugbot[bot],github-advanced-security[bot]` | ✅ |
 | `REPO_PATHS` | JSON map, e.g. `{"Know-That-Ai/sentinel":"/Users/me/@kya-os/sentinel"}` | ✅ |
 | `SMEE_URL` | leave unset — `sentinel webhooks --rotate-smee` generates one | ⚠️ |
