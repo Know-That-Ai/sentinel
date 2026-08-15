@@ -1,0 +1,8 @@
+# Code owners are automatically requested for review on every pull request
+# and are part of our SOC 2 change-management controls.
+# Docs: https://docs.github.com/articles/about-code-owners
+#
+# Later rules take precedence over earlier ones. The catch-all below assigns
+# default ownership of the entire repository to the org admins.
+
+* @H0BB5 @bestbrian
